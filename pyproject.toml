@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "slideshow"
+version = "0.1.0"
+description = "Raspberry Pi slideshow service with web configuration"
+authors = ["Slideshow Maintainers <maintainers@example.com>"]
+readme = "README.md"
+packages = [{include = "slideshow"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+flask = "^2.2"
+flask-login = "^0.6"
+pyyaml = "^6.0"
+watchdog = "^3.0"
+simplepam = "^0.1.5"
+pillow = "^9.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
