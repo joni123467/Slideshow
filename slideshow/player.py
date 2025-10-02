@@ -1,0 +1,607 @@
+"""Hintergrunddienst für die Medienwiedergabe."""
+from __future__ import annotations
+
+import itertools
+import logging
+import pathlib
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from typing import Dict, List, Optional, Tuple
+
+from PIL import Image
+
+from .config import AppConfig, PlaylistItem
+from .info import InfoScreen
+from .media import MediaManager
+from .state import set_state
+from .system import resolve_hostname, resolve_ip_addresses
+
+LOGGER = logging.getLogger(__name__)
+
+
+class PlayerService:
+    """Steuert die Wiedergabe von Bildern und Videos inklusive Splitscreen."""
+
+    def __init__(self, config: AppConfig):
+        self.config = config
+        self.manager = MediaManager(config)
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._reload = threading.Event()
+        self._info_manual = threading.Event()
+        self._info_screen = InfoScreen()
+        self._split_threads: Dict[str, PlayerService._SplitWorker] = {}
+        self._previous_images: Dict[str, Optional[pathlib.Path]] = {
+            "primary": None,
+            "secondary": None,
+        }
+        self._temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="slideshow-display-"))
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._reload.clear()
+        self._thread = threading.Thread(target=self._run, name="PlayerService", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._reload.set()
+        self._stop_splitscreen_threads()
+        if self._thread:
+            self._thread.join(timeout=5)
+        self._thread = None
+        self._cleanup_tempdir()
+        set_state(
+            None,
+            "stopped",
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            secondary_item=None,
+            secondary_status="stopped",
+        )
+
+    def reload(self) -> None:
+        self._reload.set()
+
+    def show_info_screen(self, enabled: bool) -> None:
+        if enabled:
+            self._info_manual.set()
+        else:
+            self._info_manual.clear()
+        self.reload()
+
+    def _run(self) -> None:
+        LOGGER.info("Player thread started")
+        refresh_interval = max(5, int(self.config.playback.refresh_interval))
+        while not self._stop.is_set():
+            manual_info = self._info_manual.is_set()
+
+            if self.config.playback.splitscreen_enabled:
+                if manual_info:
+                    self._stop_splitscreen_threads()
+                    if self.config.playback.info_screen_enabled:
+                        self._display_info_screen(manual=True)
+                    else:
+                        set_state(
+                            None,
+                            "idle",
+                            info_screen=False,
+                            info_manual=True,
+                            secondary_item=None,
+                            secondary_status="stopped",
+                        )
+                        time.sleep(refresh_interval)
+                    continue
+
+                has_content = self._ensure_splitscreen_running()
+                if not has_content:
+                    if self.config.playback.info_screen_enabled:
+                        self._display_info_screen(manual=False)
+                    else:
+                        set_state(
+                            None,
+                            "idle",
+                            info_screen=False,
+                            info_manual=False,
+                            secondary_item=None,
+                            secondary_status="stopped",
+                        )
+                        time.sleep(refresh_interval)
+                    self._reload.clear()
+                    continue
+
+                # Warte auf Reload/Stop, prüfe regelmäßig auf Info-Screen
+                if self._reload.wait(timeout=1):
+                    self._reload.clear()
+                    self._stop_splitscreen_threads()
+                continue
+
+            # Einzelbildschirmmodus -------------------------------------
+            self._stop_splitscreen_threads()
+            playlist = self.manager.build_playlist()
+            if manual_info or not playlist:
+                if self.config.playback.info_screen_enabled:
+                    self._display_info_screen(manual=manual_info)
+                else:
+                    set_state(
+                        None,
+                        "idle",
+                        info_screen=False,
+                        info_manual=manual_info,
+                        secondary_item=None,
+                        secondary_status="stopped",
+                    )
+                    time.sleep(refresh_interval)
+                if not manual_info:
+                    self._reload.clear()
+                continue
+
+            for item in playlist:
+                if self._stop.is_set() or self._reload.is_set():
+                    break
+                if self._info_manual.is_set():
+                    break
+                self._play_item(item)
+            self._reload.clear()
+
+        self._stop_splitscreen_threads()
+        self._cleanup_tempdir()
+        LOGGER.info("Player thread stopped")
+
+    # Splitscreen ---------------------------------------------------------
+    class _SplitWorker(threading.Thread):
+        def __init__(
+            self,
+            service: "PlayerService",
+            side: str,
+            items: List[PlaylistItem],
+            geometry: Optional[str],
+        ) -> None:
+            super().__init__(daemon=True, name=f"SplitWorker-{side}")
+            self.service = service
+            self.side = side
+            self.geometry = geometry
+            self.items = list(items)
+            self._stop = threading.Event()
+
+        def stop(self) -> None:
+            self._stop.set()
+
+        def run(self) -> None:  # pragma: no cover - Hintergrundthread
+            if not self.items:
+                state_side = self.service._state_side(self.side)
+                set_state(
+                    None,
+                    "idle",
+                    side=state_side,
+                    info_screen=False,
+                    info_manual=self.service._info_manual.is_set(),
+                )
+                return
+
+            cycle = itertools.cycle(self.items)
+            state_side = self.service._state_side(self.side)
+            for item in cycle:
+                if (
+                    self._stop.is_set()
+                    or self.service._stop.is_set()
+                    or self.service._reload.is_set()
+                    or self.service._info_manual.is_set()
+                ):
+                    break
+                self.service._play_item(
+                    item,
+                    side=state_side,
+                    geometry=self.geometry,
+                )
+
+            set_state(
+                None,
+                "idle",
+                side=state_side,
+                info_screen=False,
+                info_manual=self.service._info_manual.is_set(),
+            )
+
+    def _ensure_splitscreen_running(self) -> bool:
+        left_items, right_items = self.manager.build_splitscreen_playlists(
+            self.config.playback.splitscreen_left_source,
+            self.config.playback.splitscreen_left_path,
+            self.config.playback.splitscreen_right_source,
+            self.config.playback.splitscreen_right_path,
+        )
+        if not left_items and not right_items:
+            self._stop_splitscreen_threads()
+            return False
+
+        restart_needed = self._reload.is_set() or any(
+            not worker.is_alive() for worker in self._split_threads.values()
+        )
+        if restart_needed:
+            self._stop_splitscreen_threads()
+
+        if not self._split_threads:
+            if left_items:
+                worker = self._SplitWorker(
+                    self,
+                    "left",
+                    left_items,
+                    self._geometry_for_side("left"),
+                )
+                self._split_threads["left"] = worker
+                worker.start()
+            if right_items:
+                worker = self._SplitWorker(
+                    self,
+                    "right",
+                    right_items,
+                    self._geometry_for_side("right"),
+                )
+                self._split_threads["right"] = worker
+                worker.start()
+            if not left_items:
+                set_state(
+                    None,
+                    "idle",
+                    side="primary",
+                    info_screen=False,
+                    info_manual=self._info_manual.is_set(),
+                )
+            if not right_items:
+                set_state(
+                    None,
+                    "idle",
+                    side="secondary",
+                    info_screen=False,
+                    info_manual=self._info_manual.is_set(),
+                )
+        return True
+
+    def _stop_splitscreen_threads(self) -> None:
+        for worker in self._split_threads.values():
+            worker.stop()
+        for worker in self._split_threads.values():
+            worker.join(timeout=2)
+        if self._split_threads:
+            LOGGER.debug("Splitscreen-Threads gestoppt")
+        self._split_threads.clear()
+        self._previous_images["primary"] = None
+        self._previous_images["secondary"] = None
+
+    def _state_side(self, side: str) -> str:
+        return "primary" if side == "left" else "secondary"
+
+    def _geometry_for_side(self, side: str) -> Optional[str]:
+        width, height = self._parse_resolution()
+        if side not in {"left", "right"}:
+            return None
+        half = width // 2
+        if side == "left":
+            return f"{half}x{height}+0+0"
+        right_width = width - half
+        return f"{right_width}x{height}+{half}+0"
+
+    # Wiedergabe ----------------------------------------------------------
+    def _play_item(
+        self,
+        item: PlaylistItem,
+        *,
+        side: str = "primary",
+        geometry: Optional[str] = None,
+    ) -> None:
+        source = self.config.get_source(item.source)
+        if not source:
+            LOGGER.warning("Quelle %s nicht gefunden", item.source)
+            return
+        base = pathlib.Path(source.path)
+        full_path = base / item.path
+        if not full_path.exists():
+            LOGGER.warning("Datei %s nicht gefunden", full_path)
+            return
+        if item.type == "video":
+            self._play_video(full_path, side=side, geometry=geometry)
+        else:
+            duration = item.duration or self.config.playback.image_duration
+            self._show_image(full_path, duration, side=side, geometry=geometry)
+
+    def _play_video(
+        self,
+        path: pathlib.Path,
+        *,
+        side: str = "primary",
+        geometry: Optional[str] = None,
+    ) -> None:
+        player = self.config.playback.video_player
+        LOGGER.info("Play video %s via %s", path, player)
+        clear_secondary = side == "primary" and not self.config.playback.splitscreen_enabled
+        set_state(
+            str(path),
+            "playing",
+            side=side,
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            secondary_item=None if clear_secondary else None,
+            secondary_status="stopped" if clear_secondary else None,
+        )
+        if player == "mpv":
+            cmd = [
+                player,
+                "--no-terminal",
+                "--quiet",
+                "--loop-file=no",
+                "--force-window=yes",
+                "--keep-open=no",
+            ]
+            if geometry:
+                cmd.append(f"--geometry={geometry}")
+            else:
+                cmd.append("--fullscreen")
+            cmd.append(str(path))
+            subprocess.run(cmd, check=False)
+        elif player == "omxplayer":
+            args = ["omxplayer", "--no-keys", str(path)]
+            subprocess.run(args, check=False)
+        else:
+            subprocess.run([player, str(path)], check=False)
+        set_state(
+            str(path),
+            "completed",
+            side=side,
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            secondary_item=None if clear_secondary else None,
+            secondary_status="stopped" if clear_secondary else None,
+        )
+
+    def _show_image(
+        self,
+        path: pathlib.Path,
+        duration: int,
+        *,
+        side: str = "primary",
+        geometry: Optional[str] = None,
+        end_status: str = "completed",
+    ) -> None:
+        duration = max(1, int(duration))
+        processed_path, _ = self._prepare_image(path, side)
+
+        previous = self._previous_images.get(side)
+        self._play_transition(previous, processed_path, side=side, geometry=geometry)
+        if previous and previous != processed_path and self._is_temp_file(previous):
+            self._safe_remove(previous)
+
+        clear_secondary = side == "primary" and not self.config.playback.splitscreen_enabled
+        set_state(
+            str(path),
+            "playing",
+            side=side,
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            secondary_item=None if clear_secondary else None,
+            secondary_status="stopped" if clear_secondary else None,
+        )
+
+        viewer = self.config.playback.image_viewer
+        if viewer == "mpv":
+            cmd = [
+                viewer,
+                "--no-terminal",
+                "--quiet",
+                "--loop-file=no",
+                "--force-window=yes",
+                "--keep-open=no",
+                f"--image-display-duration={duration}",
+                "--terminate-on-last-frame=yes",
+            ]
+            if geometry:
+                cmd.append(f"--geometry={geometry}")
+            else:
+                cmd.append("--fullscreen")
+            cmd.append(str(processed_path))
+            subprocess.run(cmd, check=False)
+        elif viewer == "feh":
+            cmd = [
+                viewer,
+                "--hide-pointer",
+                "--fullscreen",
+                "--auto-zoom",
+                "--slideshow-delay",
+                str(duration),
+                "--cycle-once",
+                str(processed_path),
+            ]
+            subprocess.run(cmd, check=False)
+        else:
+            subprocess.run([viewer, str(processed_path)], check=False)
+        set_state(
+            str(path),
+            end_status,
+            side=side,
+            info_screen=end_status == "info",
+            info_manual=self._info_manual.is_set(),
+            secondary_item=None if clear_secondary else None,
+            secondary_status="stopped" if clear_secondary else None,
+        )
+
+        if processed_path.exists() and self._is_temp_file(processed_path):
+            self._previous_images[side] = processed_path
+        else:
+            self._previous_images[side] = path
+
+    def _play_transition(
+        self,
+        previous: Optional[pathlib.Path],
+        current: pathlib.Path,
+        *,
+        side: str,
+        geometry: Optional[str],
+    ) -> None:
+        transition_type = (self.config.playback.transition_type or "none").lower()
+        if transition_type == "none" or not previous or not previous.exists():
+            return
+        duration = max(0.2, float(self.config.playback.transition_duration))
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            LOGGER.warning("Übergang %s übersprungen, ffmpeg nicht gefunden", transition_type)
+            return
+
+        transition_map = {
+            "fade": "fade",
+            "slide": "slideleft",
+        }
+        transition = transition_map.get(transition_type)
+        if not transition:
+            LOGGER.warning("Unbekannter Übergangstyp: %s", transition_type)
+            return
+
+        output = self._temp_dir / f"transition-{side}.mp4"
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-loop",
+            "1",
+            "-t",
+            f"{duration}",
+            "-i",
+            str(previous),
+            "-loop",
+            "1",
+            "-t",
+            f"{duration}",
+            "-i",
+            str(current),
+            "-filter_complex",
+            f"xfade=transition={transition}:duration={duration}:offset=0",
+            "-pix_fmt",
+            "yuv420p",
+            str(output),
+        ]
+        result = subprocess.run(cmd, check=False)
+        if result.returncode != 0 or not output.exists():
+            LOGGER.warning("ffmpeg konnte Übergang nicht erzeugen")
+            return
+
+        viewer = self.config.playback.video_player if transition_type == "slide" else self.config.playback.image_viewer
+        if viewer != "mpv":
+            viewer = "mpv"
+        cmd = [
+            viewer,
+            "--no-terminal",
+            "--quiet",
+            "--loop-file=no",
+            "--force-window=yes",
+            "--keep-open=no",
+            "--terminate-on-last-frame=yes",
+        ]
+        if geometry:
+            cmd.append(f"--geometry={geometry}")
+        else:
+            cmd.append("--fullscreen")
+        cmd.append(str(output))
+        subprocess.run(cmd, check=False)
+        self._safe_remove(output)
+
+    # Hilfsfunktionen ----------------------------------------------------
+    def _prepare_image(self, path: pathlib.Path, side: str) -> Tuple[pathlib.Path, bool]:
+        fit_mode = (self.config.playback.image_fit or "contain").lower()
+        rotation = int(self.config.playback.image_rotation) % 360
+        target_width, target_height = self._target_size(side)
+
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        needs_processing = rotation != 0 or fit_mode in {"contain", "stretch"}
+        image_path = path
+        if not needs_processing and fit_mode == "original":
+            return path, False
+
+        try:
+            with Image.open(path) as img:
+                img = img.convert("RGB")
+                if rotation:
+                    img = img.rotate(-rotation, expand=True)
+                if fit_mode == "stretch":
+                    img = img.resize((target_width, target_height), Image.LANCZOS)
+                elif fit_mode == "contain":
+                    background = Image.new("RGB", (target_width, target_height), color="black")
+                    img.thumbnail((target_width, target_height), Image.LANCZOS)
+                    offset = (
+                        max(0, (target_width - img.width) // 2),
+                        max(0, (target_height - img.height) // 2),
+                    )
+                    background.paste(img, offset)
+                    img = background
+                # original mit Rotation -> keine weitere Anpassung
+                output = self._temp_dir / f"frame-{side}-{int(time.time()*1000)}.jpg"
+                img.save(output, format="JPEG", quality=90)
+                image_path = output
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Konnte Bild %s nicht vorbereiten: %s", path, exc)
+            return path, False
+
+        return image_path, True
+
+    def _target_size(self, side: str) -> Tuple[int, int]:
+        width, height = self._parse_resolution()
+        if self.config.playback.splitscreen_enabled and side in {"primary", "secondary"}:
+            half = width // 2
+            if side == "primary":
+                return max(1, half), height
+            return max(1, width - half), height
+        return width, height
+
+    def _parse_resolution(self) -> Tuple[int, int]:
+        value = self.config.playback.display_resolution or "1920x1080"
+        try:
+            width_str, height_str = value.lower().split("x", 1)
+            width = int(width_str)
+            height = int(height_str)
+        except Exception:
+            width, height = 1920, 1080
+        return max(320, width), max(240, height)
+
+    def _is_temp_file(self, path: pathlib.Path) -> bool:
+        try:
+            return self._temp_dir in path.parents or path == self._temp_dir
+        except Exception:
+            return False
+
+    def _safe_remove(self, path: pathlib.Path) -> None:
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            LOGGER.debug("Konnte temporäre Datei %s nicht löschen", path)
+
+    def _cleanup_tempdir(self) -> None:
+        if self._temp_dir.exists():
+            try:
+                shutil.rmtree(self._temp_dir)
+            except Exception:
+                LOGGER.debug("Konnte temporäres Verzeichnis nicht entfernen")
+
+    def _display_info_screen(self, manual: bool) -> None:
+        hostname = resolve_hostname()
+        addresses = resolve_ip_addresses()
+        info_path = self._info_screen.render(hostname=hostname, addresses=addresses, manual=manual)
+        set_state(
+            str(info_path),
+            "info",
+            side="primary",
+            info_screen=True,
+            info_manual=manual or self._info_manual.is_set(),
+            secondary_item=None,
+            secondary_status="stopped",
+        )
+        self._show_image(
+            info_path,
+            max(5, self.config.playback.refresh_interval),
+            side="primary",
+            geometry=None,
+            end_status="info",
+        )

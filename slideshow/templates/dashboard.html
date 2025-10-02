@@ -1,0 +1,313 @@
+{% extends 'layout.html' %}
+{% block title %}Dashboard – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Aktueller Status</h2>
+    <div class="status-block">
+      <h3>Hauptanzeige</h3>
+      <p><strong>Datei:</strong> {{ state.primary_item or '–' }}</p>
+      <p><strong>Status:</strong> {{ state.primary_status }}</p>
+      <p><strong>Gestartet:</strong> {% if state.primary_started_at %}{{ state.primary_started_at | datetimeformat }}{% else %}–{% endif %}</p>
+    </div>
+    {% if state.secondary_item or config.playback.splitscreen_enabled %}
+    <div class="status-block">
+      <h3>Splitscreen rechts</h3>
+      <p><strong>Datei:</strong> {{ state.secondary_item or '–' }}</p>
+      <p><strong>Status:</strong> {{ state.secondary_status }}</p>
+      <p><strong>Gestartet:</strong> {% if state.secondary_started_at %}{{ state.secondary_started_at | datetimeformat }}{% else %}–{% endif %}</p>
+    </div>
+    {% endif %}
+    <p><strong>Infobildschirm:</strong> {% if state.info_screen %}aktiv{% else %}inaktiv{% endif %}{% if state.info_manual %} (manuell){% endif %}</p>
+    <p><strong>Service-Status:</strong> {{ service_status }}</p>
+    <p><strong>Git-Branch:</strong> {{ current_branch or 'unbekannt' }}</p>
+  </article>
+
+  <article>
+    <h2>Playlist</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Datei</th><th>Quelle</th><th>Typ</th><th>Aktionen</th></tr>
+      </thead>
+      <tbody>
+        {% for item in playlist %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ item.path }}</td>
+          <td>{{ item.source }}</td>
+          <td>{{ item.type }}</td>
+          <td>
+            <form method="post" action="{{ url_for('playlist_delete', index=loop.index0) }}">
+              <button type="submit">Entfernen</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Keine Einträge</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <form class="inline-form" method="post" action="{{ url_for('playlist_add') }}">
+      <h3>Manuell hinzufügen</h3>
+      <label>Quelle
+        <select name="source">
+          {% for source in sources %}
+            <option value="{{ source.name }}">{{ source.name }} ({{ source.type }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Pfad (relativ zur Quelle)
+        <input type="text" name="path" required />
+      </label>
+      <label>Dauer (Sek.)
+        <input type="number" name="duration" min="1" />
+      </label>
+      <button type="submit">Hinzufügen</button>
+    </form>
+    {% if auto_totals %}
+    <h3>Automatische Medien</h3>
+    <ul>
+      {% for name, total in auto_totals.items() %}
+      <li>{{ name }}: {{ total }} Datei{% if total != 1 %}en{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+
+  <article>
+    <h2>SMB-Quelle hinzufügen</h2>
+    <form method="post" action="{{ url_for('add_smb_source') }}">
+      <label>Name<input type="text" name="name" required /></label>
+      <label>Server/IP<input type="text" name="server" required /></label>
+      <label>Freigabe<input type="text" name="share" required /></label>
+      <label>Benutzer<input type="text" name="username" /></label>
+      <label>Passwort<input type="password" name="password" /></label>
+      <button type="submit">Quelle speichern</button>
+    </form>
+  </article>
+
+  <article>
+    <h2>Steuerung</h2>
+    <form method="post" action="{{ url_for('player_control', action='start') }}">
+      <button type="submit">Slideshow starten</button>
+    </form>
+    <form method="post" action="{{ url_for('player_control', action='stop') }}">
+      <button type="submit">Slideshow stoppen</button>
+    </form>
+    <form method="post" action="{{ url_for('player_control', action='reload') }}">
+      <button type="submit">Playlist neu laden</button>
+    </form>
+    <form method="post" action="{{ url_for('player_info_screen') }}">
+      {% if state.info_screen %}
+      <input type="hidden" name="enabled" value="0" />
+      <button type="submit">Infobildschirm deaktivieren</button>
+      {% else %}
+      <input type="hidden" name="enabled" value="1" />
+      <button type="submit">Infobildschirm aktivieren</button>
+      {% endif %}
+    </form>
+  </article>
+
+  <article>
+    <h2>Anzeigeeinstellungen</h2>
+    <form method="post" action="{{ url_for('update_playback_settings') }}" class="grid-form">
+      <label>Bilddauer (Sekunden)
+        <input type="number" name="image_duration" min="1" value="{{ config.playback.image_duration }}" required />
+      </label>
+      <label>Bildmodus
+        <select name="image_fit">
+          <option value="contain" {% if config.playback.image_fit == 'contain' %}selected{% endif %}>Einpassen (mit Rändern)</option>
+          <option value="stretch" {% if config.playback.image_fit == 'stretch' %}selected{% endif %}>Strecken</option>
+          <option value="original" {% if config.playback.image_fit == 'original' %}selected{% endif %}>Originalgröße</option>
+        </select>
+      </label>
+      <label>Rotation (°)
+        <input type="number" name="image_rotation" min="0" max="359" value="{{ config.playback.image_rotation }}" />
+      </label>
+      <label>Übergang
+        <select name="transition_type">
+          <option value="none" {% if config.playback.transition_type == 'none' %}selected{% endif %}>Keiner</option>
+          <option value="fade" {% if config.playback.transition_type == 'fade' %}selected{% endif %}>Fade</option>
+          <option value="slide" {% if config.playback.transition_type == 'slide' %}selected{% endif %}>Slide</option>
+        </select>
+      </label>
+      <label>Übergangsdauer (Sekunden)
+        <input type="number" step="0.1" min="0.2" max="10" name="transition_duration" value="{{ config.playback.transition_duration }}" />
+      </label>
+      <label>Auflösung (Breite x Höhe)
+        <input type="text" name="display_resolution" value="{{ config.playback.display_resolution }}" />
+      </label>
+      <fieldset class="splitscreen">
+        <legend>Splitscreen</legend>
+        <label class="checkbox">
+          <input type="checkbox" name="splitscreen_enabled" value="1" {% if config.playback.splitscreen_enabled %}checked{% endif %} /> Aktivieren
+        </label>
+        <div class="split-grid">
+          <div>
+            <h4>Linke Seite</h4>
+            <label>Quelle
+              <select name="splitscreen_left_source">
+                <option value="">(keine)</option>
+                {% for source in sources %}
+                <option value="{{ source.name }}" {% if config.playback.splitscreen_left_source == source.name %}selected{% endif %}>{{ source.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Pfad (optional)
+              <input type="text" name="splitscreen_left_path" value="{{ config.playback.splitscreen_left_path }}" />
+            </label>
+          </div>
+          <div>
+            <h4>Rechte Seite</h4>
+            <label>Quelle
+              <select name="splitscreen_right_source">
+                <option value="">(keine)</option>
+                {% for source in sources %}
+                <option value="{{ source.name }}" {% if config.playback.splitscreen_right_source == source.name %}selected{% endif %}>{{ source.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Pfad (optional)
+              <input type="text" name="splitscreen_right_path" value="{{ config.playback.splitscreen_right_path }}" />
+            </label>
+          </div>
+        </div>
+      </fieldset>
+      <button type="submit">Einstellungen speichern</button>
+    </form>
+  </article>
+
+  <article>
+    <h2>Netzwerk</h2>
+    <form method="post" action="{{ url_for('update_network') }}">
+      <label>Hostname
+        <input type="text" name="hostname" value="{{ config.network.hostname or '' }}" />
+      </label>
+      <label>Interface
+        <input type="text" name="interface" value="{{ config.network.interface }}" />
+      </label>
+      <label>Modus
+        <select name="mode">
+          <option value="dhcp" {% if config.network.mode == 'dhcp' %}selected{% endif %}>DHCP</option>
+          <option value="static" {% if config.network.mode == 'static' %}selected{% endif %}>Statisch</option>
+        </select>
+      </label>
+      <div class="static-config">
+        <label>Adresse
+          <input type="text" name="address" value="{{ config.network.static.address }}" />
+        </label>
+        <label>Gateway
+          <input type="text" name="router" value="{{ config.network.static.router }}" />
+        </label>
+        <label>DNS (kommagetrennt)
+          <input type="text" name="dns" value="{{ config.network.static.dns | join(',') }}" />
+        </label>
+      </div>
+      <button type="submit">Speichern</button>
+    </form>
+  </article>
+
+  <article>
+    <h2>Updates &amp; System</h2>
+    <form method="post" action="{{ url_for('system_update') }}">
+      <label>Branch auswählen
+        <select name="branch">
+          {% set displayed = false %}
+          {% for branch in branches %}
+            {% set displayed = true %}
+            <option value="{{ branch }}" {% if branch == current_branch %}selected{% endif %}>{{ branch }}</option>
+          {% endfor %}
+          {% if not displayed and current_branch %}
+            <option value="{{ current_branch }}" selected>{{ current_branch }}</option>
+          {% endif %}
+        </select>
+      </label>
+      <button type="submit">Update starten</button>
+    </form>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('system_service', action='restart') }}">
+        <button type="submit">Service neu starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_service', action='start') }}">
+        <button type="submit">Service starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_service', action='stop') }}">
+        <button type="submit">Service stoppen</button>
+      </form>
+    </div>
+    <form method="post" action="{{ url_for('system_reboot') }}" onsubmit="return confirm('Raspberry Pi wirklich neu starten?');">
+      <button type="submit" class="danger">Raspberry Pi neu starten</button>
+    </form>
+  </article>
+
+  <article class="logs">
+    <h2>Protokolle</h2>
+    <div class="log-controls">
+      <label>Log auswählen
+        <select id="log-select">
+          {% for key, info in log_sources.items() %}
+          <option value="{{ key }}">{{ info.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Zeilen
+        <input type="number" id="log-lines" value="200" min="10" max="2000" />
+      </label>
+      <button type="button" id="log-refresh">Aktualisieren</button>
+    </div>
+    <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
+  </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const select = document.getElementById('log-select');
+    const output = document.getElementById('log-output');
+    const linesInput = document.getElementById('log-lines');
+    const refresh = document.getElementById('log-refresh');
+    const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
+
+    async function loadLog() {
+      if (!select || !output) {
+        return;
+      }
+      const name = select.value;
+      const lines = linesInput && linesInput.value ? linesInput.value : '200';
+      if (!name) {
+        output.textContent = 'Keine Logdatei ausgewählt.';
+        return;
+      }
+      output.textContent = 'Lade Log …';
+      try {
+        const response = await fetch(baseUrl.replace('__LOG__', encodeURIComponent(name)) + `?lines=${encodeURIComponent(lines)}`);
+        if (!response.ok) {
+          output.textContent = `Fehler beim Laden (${response.status})`;
+          return;
+        }
+        const text = await response.text();
+        output.textContent = text || 'Keine Einträge vorhanden.';
+      } catch (error) {
+        output.textContent = 'Fehler beim Abrufen des Logs.';
+      }
+    }
+
+    if (refresh) {
+      refresh.addEventListener('click', loadLog);
+    }
+    if (select) {
+      select.addEventListener('change', loadLog);
+    }
+    if (linesInput) {
+      linesInput.addEventListener('change', loadLog);
+    }
+
+    if (select && select.value) {
+      loadLog();
+    }
+  });
+</script>
+{% endblock %}
