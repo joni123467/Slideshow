@@ -223,6 +223,55 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         flash("Infobildschirm aktiviert" if enabled else "Infobildschirm deaktiviert", "info")
         return redirect(url_for("dashboard"))
 
+    @app.route("/playback/settings", methods=["POST"])
+    @pam_required
+    def update_playback_settings():
+        playback = cfg.playback
+        try:
+            playback.image_duration = max(1, int(request.form.get("image_duration") or playback.image_duration))
+        except ValueError:
+            flash("Ungültige Bilddauer", "danger")
+            return redirect(url_for("dashboard"))
+
+        fit = (request.form.get("image_fit") or playback.image_fit or "contain").lower()
+        if fit not in {"contain", "stretch", "original"}:
+            fit = "contain"
+        playback.image_fit = fit
+
+        try:
+            rotation = int(request.form.get("image_rotation") or playback.image_rotation)
+        except ValueError:
+            rotation = playback.image_rotation
+        playback.image_rotation = rotation % 360
+
+        transition = (request.form.get("transition_type") or playback.transition_type or "none").lower()
+        if transition not in {"none", "fade", "slide"}:
+            transition = "none"
+        playback.transition_type = transition
+
+        try:
+            transition_duration = float(request.form.get("transition_duration") or playback.transition_duration)
+        except ValueError:
+            transition_duration = playback.transition_duration
+        playback.transition_duration = max(0.2, min(10.0, transition_duration))
+
+        display_resolution = (request.form.get("display_resolution") or playback.display_resolution).strip()
+        playback.display_resolution = display_resolution
+
+        splitscreen_enabled = request.form.get("splitscreen_enabled") in {"1", "true", "on"}
+        playback.splitscreen_enabled = splitscreen_enabled
+        left_source = request.form.get("splitscreen_left_source")
+        right_source = request.form.get("splitscreen_right_source")
+        playback.splitscreen_left_source = left_source or None
+        playback.splitscreen_left_path = (request.form.get("splitscreen_left_path") or "").strip()
+        playback.splitscreen_right_source = right_source or None
+        playback.splitscreen_right_path = (request.form.get("splitscreen_right_path") or "").strip()
+
+        cfg.save()
+        player.reload()
+        flash("Wiedergabe-Einstellungen gespeichert", "success")
+        return redirect(url_for("dashboard"))
+
     @app.route("/system/update", methods=["POST"])
     @pam_required
     def system_update():
@@ -265,9 +314,14 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     def api_state():
         state = get_state()
         return jsonify({
-            "current_item": state.current_item,
-            "status": state.status,
-            "started_at": state.started_at,
+            "primary_item": state.primary_item,
+            "primary_status": state.primary_status,
+            "primary_started_at": state.primary_started_at,
+            "secondary_item": state.secondary_item,
+            "secondary_status": state.secondary_status,
+            "secondary_started_at": state.secondary_started_at,
+            "info_screen": state.info_screen,
+            "info_manual": state.info_manual,
         })
 
     @app.route("/api/config")

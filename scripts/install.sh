@@ -18,16 +18,33 @@ REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils feh mpv curl ca-certificates
+apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates
 
 determine_latest_branch() {
   local url="$1"
   local latest=""
   if git ls-remote --exit-code "$url" >/dev/null 2>&1; then
-    local versions
-    versions=$(git ls-remote --heads "$url" "version*" 2>/dev/null | awk '{print $2}' | sed 's#refs/heads/##' | sort -t'-' -k2,2V)
-    if [[ -n "$versions" ]]; then
-      latest=$(echo "$versions" | tail -n1)
+    local best_branch=""
+    local best_version=""
+    while IFS=$'\t' read -r _ ref; do
+      local branch="${ref#refs/heads/}"
+      if [[ "$branch" =~ ^version[[:space:]-]+([0-9]+(\.[0-9]+){1,3})$ ]]; then
+        local candidate="${BASH_REMATCH[1]}"
+        if [[ -z "$best_version" ]]; then
+          best_version="$candidate"
+          best_branch="$branch"
+        else
+          local newer
+          newer=$(printf '%s\n%s\n' "$best_version" "$candidate" | sort -V | tail -n1)
+          if [[ "$newer" == "$candidate" ]]; then
+            best_version="$candidate"
+            best_branch="$branch"
+          fi
+        fi
+      fi
+    done < <(git ls-remote --heads "$url")
+    if [[ -n "$best_branch" ]]; then
+      latest="$best_branch"
     else
       latest=$(git ls-remote --symref "$url" HEAD 2>/dev/null | awk '/^ref:/ {print $2}' | sed 's#refs/heads/##')
     fi

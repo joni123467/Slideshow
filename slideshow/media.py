@@ -61,6 +61,8 @@ class MediaManager:
         mount_point.mkdir(parents=True, exist_ok=True)
         uid = os.getuid()
         gid = os.getgid()
+        vers = source.options.get("vers", "3.0")
+        vers_option = vers if isinstance(vers, str) and vers.startswith("vers=") else f"vers={vers}"
         cmd = [
             "mount", "-t", "cifs",
             f"//{source.options['server']}/{source.options['share']}",
@@ -74,6 +76,7 @@ class MediaManager:
                 f"gid={gid}",
                 "file_mode=0775",
                 "dir_mode=0775",
+                vers_option,
             ]))
         ]
         LOGGER.info("Mount SMB share: %s", " ".join(cmd))
@@ -111,9 +114,10 @@ class MediaManager:
                 return "video"
         return "image"
 
-    def scan_directory(self, source: MediaSource) -> List[PlaylistItem]:
+    def scan_directory(self, source: MediaSource, base_path: Optional[str] = None) -> List[PlaylistItem]:
         items: List[PlaylistItem] = []
-        base = pathlib.Path(source.path)
+        source_root = pathlib.Path(source.path)
+        base = source_root / base_path if base_path else source_root
         if not base.exists():
             LOGGER.warning("Verzeichnis %s existiert nicht", base)
             return []
@@ -121,7 +125,17 @@ class MediaManager:
             if file.is_dir():
                 continue
             item_type = self.detect_item_type(file.name)
-            items.append(PlaylistItem(source=source.name, path=str(file.relative_to(base)), type=item_type))
+            try:
+                relative = file.relative_to(source_root)
+            except ValueError:
+                relative = file.relative_to(base)
+            items.append(
+                PlaylistItem(
+                    source=source.name,
+                    path=str(relative),
+                    type=item_type,
+                )
+            )
         return items
 
     def build_playlist(self) -> List[PlaylistItem]:
@@ -161,3 +175,39 @@ class MediaManager:
 
     def serialize_sources(self) -> List[dict]:
         return [asdict(source) for source in self.config.media_sources]
+
+    def build_splitscreen_playlists(
+        self,
+        left_source: Optional[str],
+        left_path: str,
+        right_source: Optional[str],
+        right_path: str,
+    ) -> tuple[List[PlaylistItem], List[PlaylistItem]]:
+        left_items: List[PlaylistItem] = []
+        right_items: List[PlaylistItem] = []
+
+        if left_source:
+            source = self.config.get_source(left_source)
+            if source:
+                try:
+                    self.mount_source(source)
+                except Exception as exc:  # pragma: no cover - defensive
+                    LOGGER.warning("Konnte linke Quelle %s nicht mounten: %s", left_source, exc)
+                else:
+                    left_items = self.scan_directory(source, left_path or None)
+            else:
+                LOGGER.warning("Linke Quelle %s unbekannt", left_source)
+
+        if right_source:
+            source = self.config.get_source(right_source)
+            if source:
+                try:
+                    self.mount_source(source)
+                except Exception as exc:  # pragma: no cover - defensive
+                    LOGGER.warning("Konnte rechte Quelle %s nicht mounten: %s", right_source, exc)
+                else:
+                    right_items = self.scan_directory(source, right_path or None)
+            else:
+                LOGGER.warning("Rechte Quelle %s unbekannt", right_source)
+
+        return left_items, right_items

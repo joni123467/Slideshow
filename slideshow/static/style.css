@@ -66,6 +66,18 @@ article h2 {
   margin-top: 0;
 }
 
+.status-block {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-block h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -145,6 +157,52 @@ form {
   display: flex;
   flex-direction: column;
   margin-bottom: 0.5rem;
+}
+
+.grid-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.grid-form label,
+.grid-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.grid-form fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.grid-form fieldset legend {
+  padding: 0 0.5rem;
+  font-weight: 600;
+}
+
+.split-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.split-grid h4 {
+  margin: 0 0 0.5rem 0;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.checkbox input[type="checkbox"] {
+  width: auto;
 }
 
 .flash-container {

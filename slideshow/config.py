@@ -28,10 +28,20 @@ DEFAULT_CONFIG = {
     "playback": {
         "image_duration": 10,
         "video_player": "mpv",
-        "image_viewer": "feh",
+        "image_viewer": "mpv",
         "auto_start": True,
         "refresh_interval": 30,
         "info_screen_enabled": True,
+        "image_fit": "contain",
+        "image_rotation": 0,
+        "transition_type": "none",
+        "transition_duration": 1.0,
+        "display_resolution": "1920x1080",
+        "splitscreen_enabled": False,
+        "splitscreen_left_source": None,
+        "splitscreen_left_path": "",
+        "splitscreen_right_source": None,
+        "splitscreen_right_path": "",
     },
     "network": {
         "hostname": None,
@@ -85,6 +95,16 @@ class PlaybackConfig:
     auto_start: bool
     refresh_interval: int
     info_screen_enabled: bool
+    image_fit: str
+    image_rotation: int
+    transition_type: str
+    transition_duration: float
+    display_resolution: str
+    splitscreen_enabled: bool
+    splitscreen_left_source: Optional[str]
+    splitscreen_left_path: str
+    splitscreen_right_source: Optional[str]
+    splitscreen_right_path: str
 
 
 @dataclasses.dataclass

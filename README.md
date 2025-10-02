@@ -4,13 +4,15 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 
 ## Funktionen
 
-- **Automatisierte Wiedergabe** von Bildern (unterstützt durch `feh`) und Videos (unterstützt durch `mpv` oder `omxplayer`).
+- **Automatisierte Wiedergabe** von Bildern und Videos über `mpv` (optional `feh` bzw. `omxplayer`), inklusive Infobildschirm bei Leerlauf.
+- **Flexible Bilddarstellung**: Bilddauer, Skalierung (einpassen, strecken, Originalgröße), Rotation und Übergänge (Fade oder Slide) werden im Webinterface eingestellt.
 - **Mehrere Medienquellen**: lokale Ordner oder SMB/CIFS-Freigaben, die automatisch eingehängt und in regelmäßigen Abständen gescannt werden.
+- **Splitscreen-Modus**: Optional lassen sich zwei Quellen parallel darstellen – z. B. Videos links und Bilder rechts – inklusive unabhängiger Wiedergabeschleifen.
 - **Automatischer Medienabgleich**: Neue Dateien in überwachten Ordnern werden ohne Neustart erkannt und automatisch in der Wiedergabe berücksichtigt.
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
 - **Login über PAM**: Standardmäßig meldet sich der Benutzer mit seinem Raspberry-Pi-Benutzernamen und -Passwort an (z. B. `pi`).
 - **Netzwerkkonfiguration**: Hostname sowie IPv4-Konfiguration (DHCP oder statische Adresse) können aus der Oberfläche angepasst werden.
-- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches und Benutzeranlage).
+- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches, Benutzeranlage und Aktivierung von SMB 3.0).
 - **Infobildschirm**: Solange keine Playlist aktiv ist – oder auf Wunsch manuell – zeigt die Anwendung einen Bildschirm mit Hostnamen und IP-Adressen an.
 - **Systemaktionen**: Service-Start/-Stopp, Branch-Updates und Neustarts des Raspberry Pi können direkt im Webinterface ausgelöst werden.
 - **Versionsübersicht & Protokolle**: Anzeige der aktuell eingesetzten Version sowie Zugriff auf die wichtigsten Modul-Logs direkt in der Weboberfläche.
@@ -59,7 +61,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    curl -sSL https://raw.githubusercontent.com/SlideshowProject/Slideshow/main/scripts/install.sh | sudo bash
    ```
 
-2. Das Skript richtet automatisch alle Abhängigkeiten ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Benutzername und Passwort können während der Installation angepasst werden:
+2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Benutzername und Passwort können während der Installation angepasst werden:
 
    ```bash
    sudo ./install.sh

@@ -1,10 +1,10 @@
-"""Zentraler Statusspeicher."""
+"""Zustandsverwaltung für die Slideshow."""
 from __future__ import annotations
 
 import json
 import threading
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -17,29 +17,46 @@ _lock = threading.Lock()
 
 @dataclass
 class PlaybackState:
-    current_item: Optional[str]
-    started_at: Optional[float]
-    status: str
+    primary_item: Optional[str]
+    primary_started_at: Optional[float]
+    primary_status: str
+    secondary_item: Optional[str]
+    secondary_started_at: Optional[float]
+    secondary_status: str
     info_screen: bool
     info_manual: bool
 
 
-_state = PlaybackState(current_item=None, started_at=None, status="stopped", info_screen=False, info_manual=False)
+_state = PlaybackState(
+    primary_item=None,
+    primary_started_at=None,
+    primary_status="stopped",
+    secondary_item=None,
+    secondary_started_at=None,
+    secondary_status="stopped",
+    info_screen=False,
+    info_manual=False,
+)
 
 
 def load_state() -> PlaybackState:
+    """Lädt den letzten bekannten Wiedergabestatus."""
+
     global _state
     if STATE_PATH.exists():
         try:
             data = json.loads(STATE_PATH.read_text("utf-8"))
             _state = PlaybackState(
-                current_item=data.get("current_item"),
-                started_at=data.get("started_at"),
-                status=data.get("status", "stopped"),
+                primary_item=data.get("primary_item", data.get("current_item")),
+                primary_started_at=data.get("primary_started_at", data.get("started_at")),
+                primary_status=data.get("primary_status", data.get("status", "stopped")),
+                secondary_item=data.get("secondary_item"),
+                secondary_started_at=data.get("secondary_started_at"),
+                secondary_status=data.get("secondary_status", "stopped"),
                 info_screen=data.get("info_screen", False),
                 info_manual=data.get("info_manual", False),
             )
-        except Exception:
+        except Exception:  # pragma: no cover - robust gegen defekte Dateien
             pass
     return _state
 
@@ -49,15 +66,37 @@ def save_state(state: PlaybackState) -> None:
     STATE_PATH.write_text(json.dumps(asdict(state)), encoding="utf-8")
 
 
-def set_state(current_item: Optional[str], status: str, *, info_screen: bool = False, info_manual: bool = False) -> PlaybackState:
+def set_state(
+    current_item: Optional[str],
+    status: str,
+    *,
+    info_screen: bool = False,
+    info_manual: bool = False,
+    side: str = "primary",
+    secondary_item: Optional[str] = None,
+    secondary_status: Optional[str] = None,
+) -> PlaybackState:
+    """Aktualisiert den Wiedergabestatus."""
+
     with _lock:
-        state = PlaybackState(
-            current_item=current_item,
-            started_at=time.time() if current_item else None,
-            status=status,
-            info_screen=info_screen,
-            info_manual=info_manual,
-        )
+        state = load_state()
+        now = time.time()
+        if side == "secondary":
+            state.secondary_item = current_item
+            state.secondary_status = status
+            state.secondary_started_at = now if current_item else None
+        else:
+            state.primary_item = current_item
+            state.primary_status = status
+            state.primary_started_at = now if current_item else None
+            if secondary_item is not None or secondary_status is not None:
+                state.secondary_item = secondary_item
+                state.secondary_status = secondary_status or (
+                    "stopped" if secondary_item is None else status
+                )
+                state.secondary_started_at = now if secondary_item else None
+        state.info_screen = info_screen
+        state.info_manual = info_manual
         save_state(state)
         return state
 
