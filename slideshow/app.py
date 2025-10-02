@@ -6,11 +6,13 @@ import logging
 import subprocess
 from typing import Optional
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for, flash
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
+from . import __version__
 from .auth import PamAuthenticator, User
 from .config import AppConfig, PlaylistItem
+from .logging_config import available_logs
 from .media import MediaManager
 from .network import NetworkManager
 from .player import PlayerService
@@ -37,6 +39,14 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
 
     app.extensions["player_service"] = player
     app.extensions["system_manager"] = system_manager
+    app.config["SLIDESHOW_VERSION"] = __version__
+
+    @app.context_processor
+    def inject_globals():
+        return {
+            "slideshow_version": app.config.get("SLIDESHOW_VERSION", "0.0.0"),
+            "log_sources": available_logs(),
+        }
 
     @app.template_filter("datetimeformat")
     def datetimeformat(value, fmt="%d.%m.%Y %H:%M:%S"):
@@ -129,6 +139,20 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         player.reload()
         flash("Element hinzugefügt", "success")
         return redirect(url_for("dashboard"))
+
+    @app.route("/logs/<string:name>")
+    @pam_required
+    def show_log(name: str):
+        lines = request.args.get("lines", default="200")
+        try:
+            line_count = max(10, min(2000, int(lines)))
+        except ValueError:
+            line_count = 200
+        try:
+            content = system_manager.read_log(name, line_count)
+        except ValueError:
+            abort(404)
+        return Response(content, mimetype="text/plain; charset=utf-8")
 
     @app.route("/playlist/<int:index>/delete", methods=["POST"])
     @pam_required

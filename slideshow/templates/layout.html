@@ -9,6 +9,7 @@
   <body>
     <header class="topbar">
       <h1>Slideshow Steuerung</h1>
+      <div class="version">Version {{ slideshow_version }}</div>
       <nav>
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
         <a href="{{ url_for('logout') }}">Logout</a>
@@ -26,5 +27,6 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+    {% block scripts %}{% endblock %}
   </body>
 </html>

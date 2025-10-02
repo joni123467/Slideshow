@@ -7,7 +7,7 @@ import pathlib
 import shutil
 import socket
 import subprocess
-from typing import List
+from typing import Dict, List
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,7 +69,22 @@ class SystemManager:
             parts = line.split()
             if len(parts) == 2 and parts[1].startswith("refs/heads/"):
                 branches.append(parts[1].split("/", 2)[-1])
-        return sorted(set(branches))
+
+        unique_branches = sorted(set(branches))
+
+        def sort_key(name: str):
+            normalized = name.replace(" ", "-").replace("_", "-")
+            if normalized.lower().startswith("version") and "-" in normalized:
+                version_part = normalized.split("-", 1)[-1]
+                try:
+                    numbers = tuple(int(part) for part in version_part.split("."))
+                    return (0, tuple(-part for part in numbers), name)
+                except ValueError:
+                    pass
+            return (1, (name,), name)
+
+        ordered = sorted((sort_key(branch) for branch in unique_branches))
+        return [entry[-1] for entry in ordered]
 
     def update(self, branch: str) -> subprocess.CompletedProcess:
         if not branch:
@@ -97,6 +112,28 @@ class SystemManager:
 
     def reboot(self) -> subprocess.CompletedProcess:
         return self._run(["reboot"], use_sudo=True)
+
+    # Logging ---------------------------------------------------------
+    def available_logs(self) -> Dict[str, pathlib.Path]:
+        from .logging_config import available_logs as logging_available
+
+        sources = {}
+        for key, info in logging_available().items():
+            sources[key] = pathlib.Path(info["path"])
+        return sources
+
+    def read_log(self, name: str, lines: int = 200) -> str:
+        logs = self.available_logs()
+        path = logs.get(name)
+        if not path:
+            raise ValueError("Unbekanntes Log")
+        if not path.exists():
+            return ""
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            content = handle.readlines()
+        if lines <= 0:
+            return "".join(content)
+        return "".join(content[-lines:])
 
     # Helpers ---------------------------------------------------------
     def _run(

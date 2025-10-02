@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import logging
-import os
 
 from slideshow.app import create_app
 from slideshow.player import PlayerService
 from slideshow.config import AppConfig
-
-
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
 
 
 def cmd_run(args: argparse.Namespace) -> None:

@@ -10,9 +10,10 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
 - **Login über PAM**: Standardmäßig meldet sich der Benutzer mit seinem Raspberry-Pi-Benutzernamen und -Passwort an (z. B. `pi`).
 - **Netzwerkkonfiguration**: Hostname sowie IPv4-Konfiguration (DHCP oder statische Adresse) können aus der Oberfläche angepasst werden.
-- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout und Benutzeranlage).
+- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches und Benutzeranlage).
 - **Infobildschirm**: Solange keine Playlist aktiv ist – oder auf Wunsch manuell – zeigt die Anwendung einen Bildschirm mit Hostnamen und IP-Adressen an.
 - **Systemaktionen**: Service-Start/-Stopp, Branch-Updates und Neustarts des Raspberry Pi können direkt im Webinterface ausgelöst werden.
+- **Versionsübersicht & Protokolle**: Anzeige der aktuell eingesetzten Version sowie Zugriff auf die wichtigsten Modul-Logs direkt in der Weboberfläche.
 - **Erweiterbarer REST-API-Layer**, der zukünftig von einer zentralen Verwaltungsinstanz genutzt werden kann, um mehrere PIs zu orchestrieren.
 
 ## Projektstruktur
@@ -45,17 +46,23 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
 ## Installation
 
-1. Repository klonen oder als ZIP herunterladen und in das Verzeichnis wechseln:
+1. Installationsskript herunterladen (Beispiel: aktueller Versionsstand aus GitHub):
 
    ```bash
-   git clone https://example.com/slideshow.git
-   cd slideshow
+   wget https://raw.githubusercontent.com/SlideshowProject/Slideshow/main/scripts/install.sh
+   chmod +x install.sh
    ```
 
-2. Installationsskript ausführen. Das Skript fragt Repository-URL, Branch sowie den zu erstellenden Dienstbenutzer (inklusive Passwort) ab, installiert benötigte Debian-Pakete und richtet den systemd-Dienst ein:
+   Alternativ lässt sich das Skript direkt ausführen:
 
    ```bash
-   sudo ./scripts/install.sh
+   curl -sSL https://raw.githubusercontent.com/SlideshowProject/Slideshow/main/scripts/install.sh | sudo bash
+   ```
+
+2. Das Skript richtet automatisch alle Abhängigkeiten ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Benutzername und Passwort können während der Installation angepasst werden:
+
+   ```bash
+   sudo ./install.sh
    ```
 
 3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`.
@@ -64,7 +71,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
 ## Update-Prozess
 
-Updates lassen sich entweder aus dem Webinterface über die Branch-Auswahl oder per Skript anwenden:
+Updates lassen sich entweder aus dem Webinterface über die Branch-Auswahl oder per Skript anwenden. Branches im Format `version-x.y.z` werden automatisch erkannt und nach Versionsnummer sortiert dargestellt:
 
 - **Im Webinterface**: gewünschten Branch auswählen und Update starten. Das Skript `scripts/update.sh` wird dabei mit Root-Rechten aufgerufen und setzt anschließend den Dienst neu auf.
 - **Per Terminal**:
@@ -75,6 +82,10 @@ Updates lassen sich entweder aus dem Webinterface über die Branch-Auswahl oder 
   ```
 
   Wird kein Branch übergeben, nutzt das Skript den bei der Installation hinterlegten Branch.
+
+## Protokolle einsehen
+
+Im Dashboard befindet sich ein eigener Bereich für Protokolle. Dort können die wichtigsten Modul-Logs (z. B. Weboberfläche, Player, Medienverwaltung) ausgewählt, gefiltert und direkt im Browser angezeigt werden. So lassen sich Fehler schnell diagnostizieren, ohne den Pi per SSH betreten zu müssen.
 
 ## Entwicklung
 

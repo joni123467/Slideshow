@@ -23,6 +23,13 @@ body {
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 1rem;
 }
 
 .topbar nav a {
@@ -30,6 +37,12 @@ body {
   margin-left: 1rem;
   text-decoration: none;
   font-weight: 600;
+}
+
+.topbar .version {
+  margin-left: auto;
+  font-size: 0.9rem;
+  opacity: 0.8;
 }
 
 .content {
@@ -103,6 +116,31 @@ form {
   margin: 0;
 }
 
+.logs {
+  display: flex;
+  flex-direction: column;
+}
+
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.logs pre {
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
 .inline-form label {
   display: flex;
   flex-direction: column;
@@ -155,4 +193,11 @@ form {
 
 .login-form label {
   font-weight: 600;
+}
+
+.version-hint {
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  opacity: 0.75;
 }

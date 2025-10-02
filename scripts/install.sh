@@ -1,34 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# REPO_SLUG: SlideshowProject/Slideshow
+
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
 SERVICE_FILE="/etc/systemd/system/slideshow.service"
-REPO_URL_DEFAULT="${REPO_URL:-$(git config --get remote.origin.url 2>/dev/null || echo "https://github.com/example/slideshow.git")}"
-BRANCH_DEFAULT="${BRANCH:-main}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Dieses Skript muss als root ausgeführt werden." >&2
   exit 1
 fi
 
-read -rp "Git-Repository-URL [$REPO_URL_DEFAULT]: " REPO_URL_INPUT
-REPO_URL="${REPO_URL_INPUT:-$REPO_URL_DEFAULT}"
+REPO_SLUG=$(grep -m1 '^# REPO_SLUG:' "$0" | awk -F':' '{print $2}' | xargs)
+REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-SlideshowProject/Slideshow}}"
+REPO_URL="https://github.com/${REPO_SLUG}.git"
 
-default_branch() {
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils feh mpv curl ca-certificates
+
+determine_latest_branch() {
   local url="$1"
-  if command -v git >/dev/null 2>&1; then
-    git ls-remote --symref "$url" HEAD 2>/dev/null | awk '/^ref:/ {print $2}' | sed 's#refs/heads/##'
+  local latest=""
+  if git ls-remote --exit-code "$url" >/dev/null 2>&1; then
+    local versions
+    versions=$(git ls-remote --heads "$url" "version*" 2>/dev/null | awk '{print $2}' | sed 's#refs/heads/##' | sort -t'-' -k2,2V)
+    if [[ -n "$versions" ]]; then
+      latest=$(echo "$versions" | tail -n1)
+    else
+      latest=$(git ls-remote --symref "$url" HEAD 2>/dev/null | awk '/^ref:/ {print $2}' | sed 's#refs/heads/##')
+    fi
   fi
+  echo "${latest:-main}"
 }
 
-DEFAULT_BRANCH_REMOTE=$(default_branch "$REPO_URL")
-if [[ -n "$DEFAULT_BRANCH_REMOTE" ]]; then
-  BRANCH_DEFAULT="$DEFAULT_BRANCH_REMOTE"
-fi
-
-read -rp "Branch [$BRANCH_DEFAULT]: " BRANCH_INPUT
-BRANCH="${BRANCH_INPUT:-$BRANCH_DEFAULT}"
+BRANCH="${SLIDESHOW_BRANCH:-$(determine_latest_branch "$REPO_URL")}" 
 
 read -rp "Dienstbenutzername [slideshow]: " USER_NAME_INPUT
 USER_NAME="${USER_NAME_INPUT:-slideshow}"
@@ -40,10 +47,6 @@ if [[ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]]; then
   echo "Passwörter stimmen nicht überein." >&2
   exit 1
 fi
-
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils feh mpv
 
 if id -u "$USER_NAME" >/dev/null 2>&1; then
   echo "Benutzer $USER_NAME existiert bereits."

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "slideshow"
-version = "0.1.0"
+version = "0.0.1"
 description = "Raspberry Pi slideshow service with web configuration"
 authors = ["Slideshow Maintainers <maintainers@example.com>"]
 readme = "README.md"
