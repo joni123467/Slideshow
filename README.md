@@ -51,14 +51,14 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 1. Installationsskript herunterladen (Beispiel: aktueller Versionsstand aus GitHub):
 
    ```bash
-   wget https://raw.githubusercontent.com/SlideshowProject/Slideshow/main/scripts/install.sh
+   wget https://raw.githubusercontent.com/joni123467/Slideshow/refs/heads/main/scripts/install.sh
    chmod +x install.sh
    ```
 
    Alternativ lässt sich das Skript direkt ausführen:
 
    ```bash
-   curl -sSL https://raw.githubusercontent.com/SlideshowProject/Slideshow/main/scripts/install.sh | sudo bash
+   curl -sSL https://raw.githubusercontent.com/joni123467/Slideshow/refs/heads/main/scripts/install.sh | sudo bash
    ```
 
 2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Benutzername und Passwort können während der Installation angepasst werden:
