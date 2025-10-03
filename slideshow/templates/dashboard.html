@@ -6,19 +6,19 @@
     <h2>Aktueller Status</h2>
     <div class="status-block">
       <h3>Primäre Anzeige</h3>
-      <p><strong>Datei:</strong> {{ state.primary_item or '–' }}</p>
-      <p><strong>Status:</strong> {{ state.primary_status or 'unbekannt' }}</p>
-      <p><strong>Gestartet:</strong> {% if state.primary_started_at %}{{ state.primary_started_at | datetimeformat }}{% else %}–{% endif %}</p>
+      <p><strong>Datei:</strong> <span data-state="primary-item">{{ state.primary_item or '–' }}</span></p>
+      <p><strong>Status:</strong> <span data-state="primary-status">{{ state.primary_status or 'unbekannt' }}</span></p>
+      <p><strong>Gestartet:</strong> <span data-state="primary-started">{% if state.primary_started_at %}{{ state.primary_started_at | datetimeformat }}{% else %}–{% endif %}</span></p>
     </div>
     {% if config.playback.splitscreen_enabled %}
-    <div class="status-block">
+    <div class="status-block" data-secondary-status>
       <h3>Splitscreen rechts</h3>
-      <p><strong>Datei:</strong> {{ state.secondary_item or '–' }}</p>
-      <p><strong>Status:</strong> {{ state.secondary_status or 'unbekannt' }}</p>
-      <p><strong>Gestartet:</strong> {% if state.secondary_started_at %}{{ state.secondary_started_at | datetimeformat }}{% else %}–{% endif %}</p>
+      <p><strong>Datei:</strong> <span data-state="secondary-item">{{ state.secondary_item or '–' }}</span></p>
+      <p><strong>Status:</strong> <span data-state="secondary-status">{{ state.secondary_status or 'unbekannt' }}</span></p>
+      <p><strong>Gestartet:</strong> <span data-state="secondary-started">{% if state.secondary_started_at %}{{ state.secondary_started_at | datetimeformat }}{% else %}–{% endif %}</span></p>
     </div>
     {% endif %}
-    <p><strong>Infobildschirm:</strong> {% if state.info_screen %}aktiv{% else %}inaktiv{% endif %}{% if state.info_manual %} (manuell){% endif %}</p>
+    <p><strong>Infobildschirm:</strong> <span data-state="info-screen">{% if state.info_screen %}aktiv{% else %}inaktiv{% endif %}{% if state.info_manual %} (manuell){% endif %}</span></p>
     <p><strong>Service-Status:</strong> {{ service_status or 'unbekannt' }}</p>
     <p><strong>Autostart:</strong> {% if config.playback.auto_start %}aktiviert{% else %}deaktiviert{% endif %}</p>
   </article>
@@ -31,6 +31,7 @@
         <thead>
           <tr>
             <th>#</th>
+            <th>Vorschau</th>
             <th>Datei</th>
             <th>Quelle</th>
             <th>Typ</th>
@@ -40,13 +41,20 @@
           {% for item in playlist %}
           <tr>
             <td>{{ loop.index }}</td>
+            <td>
+              {% if item.type == 'image' %}
+              <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+              {% else %}
+              <span class="muted">—</span>
+              {% endif %}
+            </td>
             <td>{{ item.path }}</td>
             <td>{{ item.source }}</td>
             <td>{{ item.type }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="4">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
+            <td colspan="5">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -55,4 +63,76 @@
     <a class="button-link" href="{{ url_for('media_settings') }}">Quellen verwalten</a>
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const stateTargets = {
+      primaryItem: document.querySelector('[data-state="primary-item"]'),
+      primaryStatus: document.querySelector('[data-state="primary-status"]'),
+      primaryStarted: document.querySelector('[data-state="primary-started"]'),
+      secondaryItem: document.querySelector('[data-state="secondary-item"]'),
+      secondaryStatus: document.querySelector('[data-state="secondary-status"]'),
+      secondaryStarted: document.querySelector('[data-state="secondary-started"]'),
+      infoScreen: document.querySelector('[data-state="info-screen"]'),
+    };
+
+    const secondaryBlock = document.querySelector('[data-secondary-status]');
+    const formatter = new Intl.DateTimeFormat('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    function formatTimestamp(value) {
+      if (!value) {
+        return '–';
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return '–';
+      }
+      return formatter.format(new Date(numeric * 1000));
+    }
+
+    async function refreshState() {
+      try {
+        const response = await fetch('{{ url_for('api_state') }}', { cache: 'no-store' });
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (stateTargets.primaryItem) stateTargets.primaryItem.textContent = data.primary_item || '–';
+        if (stateTargets.primaryStatus) stateTargets.primaryStatus.textContent = data.primary_status || 'unbekannt';
+        if (stateTargets.primaryStarted) stateTargets.primaryStarted.textContent = formatTimestamp(data.primary_started_at);
+
+        const hasSecondary = Boolean(data.secondary_item || data.secondary_status || data.secondary_started_at);
+        if (secondaryBlock) {
+          secondaryBlock.style.display = hasSecondary ? '' : 'none';
+        }
+        if (stateTargets.secondaryItem) stateTargets.secondaryItem.textContent = data.secondary_item || '–';
+        if (stateTargets.secondaryStatus) stateTargets.secondaryStatus.textContent = data.secondary_status || 'unbekannt';
+        if (stateTargets.secondaryStarted) stateTargets.secondaryStarted.textContent = formatTimestamp(data.secondary_started_at);
+
+        if (stateTargets.infoScreen) {
+          const parts = [];
+          parts.push(data.info_screen ? 'aktiv' : 'inaktiv');
+          if (data.info_manual) {
+            parts.push('(manuell)');
+          }
+          stateTargets.infoScreen.textContent = parts.join(' ');
+        }
+      } catch (err) {
+        console.debug('Status konnte nicht aktualisiert werden', err);
+      }
+    }
+
+    refreshState();
+    setInterval(refreshState, 5000);
+  })();
+</script>
 {% endblock %}

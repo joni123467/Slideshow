@@ -142,6 +142,10 @@ cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
 
+cat <<REPO > "$APP_DIR/.install_repo"
+$REPO_SLUG
+REPO
+
 chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
 
 SUDOERS_FILE="/etc/sudoers.d/slideshow"

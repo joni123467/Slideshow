@@ -1,0 +1,48 @@
+{% extends 'layout.html' %}
+{% block title %}Quelle bearbeiten – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Quelle „{{ source.name }}“ bearbeiten</h2>
+    <p class="muted">Passe Server, Freigabe oder Zugangsdaten an. Leer gelassene Felder behalten den aktuellen Wert.</p>
+    <form method="post" class="grid-form">
+      <label>Bezeichnung
+        <input type="text" name="name" value="{{ request.form.get('name', source.name) }}" required />
+      </label>
+      <label>SMB-Pfad (optional)
+        <input type="text" name="smb_path" placeholder="\\\\server\\freigabe\\unterordner" value="{{ request.form.get('smb_path', '') }}" />
+        <small class="muted">Wenn angegeben, überschreibt der Pfad Server, Freigabe und Unterordner.</small>
+      </label>
+      <label>Server
+        <input type="text" name="server" value="{{ request.form.get('server', source.options.get('server', '')) }}" />
+      </label>
+      <label>Freigabe
+        <input type="text" name="share" value="{{ request.form.get('share', source.options.get('share', '')) }}" />
+      </label>
+      <label>Unterordner (optional)
+        <input type="text" name="subpath" value="{{ request.form.get('subpath', source.subpath or '') }}" />
+      </label>
+      <label>Benutzername (optional)
+        <input type="text" name="username" value="{{ request.form.get('username', source.options.get('username', '')) }}" autocomplete="username" />
+      </label>
+      <label>Domäne (optional)
+        <input type="text" name="domain" value="{{ request.form.get('domain', source.options.get('domain', '')) }}" />
+      </label>
+      <label>Neues Passwort (optional)
+        <input type="password" name="password" autocomplete="new-password" />
+        <small class="muted">Leer lassen, um das bestehende Passwort beizubehalten.</small>
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="clear_password" value="1" /> Gespeichertes Passwort entfernen
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="auto_scan" value="1" {% if (request.form and request.form.get('auto_scan')) or (not request.form and source.auto_scan) %}checked{% endif %} /> Automatisch scannen
+      </label>
+      <div class="button-row">
+        <button type="submit">Änderungen speichern</button>
+        <a class="button-link" href="{{ url_for('media_settings') }}">Abbrechen</a>
+      </div>
+    </form>
+  </article>
+</section>
+{% endblock %}
