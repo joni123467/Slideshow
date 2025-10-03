@@ -1,0 +1,124 @@
+{% extends 'layout.html' %}
+{% block title %}Wiedergabe – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Steuerung</h2>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('player_control', action='start') }}">
+        <button type="submit">Slideshow starten</button>
+      </form>
+      <form method="post" action="{{ url_for('player_control', action='stop') }}">
+        <button type="submit">Slideshow stoppen</button>
+      </form>
+      <form method="post" action="{{ url_for('player_control', action='reload') }}">
+        <button type="submit">Playlist neu laden</button>
+      </form>
+    </div>
+    <form method="post" action="{{ url_for('player_info_screen') }}">
+      <p class="muted">Aktueller Status: {% if state and state.info_manual %}Infobildschirm wurde manuell aktiviert{% else %}Infobildschirm ist deaktiviert{% endif %}.</p>
+      {% if config.playback.info_screen_enabled and not config.playback.splitscreen_enabled %}
+      <p class="muted">Der Infobildschirm erscheint automatisch, sobald keine Medien gefunden werden.</p>
+      {% endif %}
+      {% if state and state.info_manual %}
+      <input type="hidden" name="enabled" value="0" />
+      <button type="submit">Infobildschirm deaktivieren</button>
+      {% else %}
+      <input type="hidden" name="enabled" value="1" />
+      <button type="submit">Infobildschirm aktivieren</button>
+      {% endif %}
+    </form>
+  </article>
+
+  <article>
+    <h2>Einstellungen</h2>
+    <form method="post" action="{{ url_for('update_playback_settings') }}" class="grid-form">
+      <label>Bilddauer (Sekunden)
+        <input type="number" name="image_duration" min="1" value="{{ config.playback.image_duration }}" required />
+      </label>
+      <label>Bilddarstellung
+        <select name="image_fit">
+          <option value="contain" {% if config.playback.image_fit == 'contain' %}selected{% endif %}>Einpassen (mit Rändern)</option>
+          <option value="stretch" {% if config.playback.image_fit == 'stretch' %}selected{% endif %}>Strecken</option>
+          <option value="original" {% if config.playback.image_fit == 'original' %}selected{% endif %}>Originalgröße</option>
+        </select>
+      </label>
+      <label>Rotation (°)
+        <input type="number" name="image_rotation" min="0" max="359" value="{{ config.playback.image_rotation }}" />
+      </label>
+      <label>Übergang
+        <select name="transition_type">
+          <option value="none" {% if config.playback.transition_type == 'none' %}selected{% endif %}>Keiner</option>
+          <option value="fade" {% if config.playback.transition_type == 'fade' %}selected{% endif %}>Fade</option>
+          <option value="slide" {% if config.playback.transition_type == 'slide' %}selected{% endif %}>Slide</option>
+        </select>
+      </label>
+      <label>Übergangsdauer (Sekunden)
+        <input type="number" step="0.1" min="0.2" max="10" name="transition_duration" value="{{ config.playback.transition_duration }}" />
+      </label>
+      <label>Anzeigeauflösung
+        <input type="text" name="display_resolution" value="{{ config.playback.display_resolution }}" />
+      </label>
+      <label>Video-Ausgabemodus
+        <select name="video_backend">
+          <option value="auto" {% if config.playback.video_backend == 'auto' %}selected{% endif %}>Automatisch</option>
+          <option value="x11" {% if config.playback.video_backend == 'x11' %}selected{% endif %}>X11 / Desktop</option>
+          <option value="drm" {% if config.playback.video_backend == 'drm' %}selected{% endif %}>DRM / Framebuffer</option>
+        </select>
+      </label>
+      <label>Zusätzliche Video-Argumente
+        <textarea name="video_player_args" rows="3" placeholder="z. B. --vo=gpu">{{ config.playback.video_player_args | default([], true) | join('\n') }}</textarea>
+        <small class="muted">Ein Argument pro Zeile; leer lassen, um die Standardwerte zu verwenden.</small>
+      </label>
+      <label>Bild-Ausgabemodus
+        <select name="image_backend">
+          <option value="auto" {% if config.playback.image_backend == 'auto' %}selected{% endif %}>Automatisch</option>
+          <option value="x11" {% if config.playback.image_backend == 'x11' %}selected{% endif %}>X11 / Desktop</option>
+          <option value="drm" {% if config.playback.image_backend == 'drm' %}selected{% endif %}>DRM / Framebuffer</option>
+        </select>
+      </label>
+      <label>Zusätzliche Bild-Argumente
+        <textarea name="image_viewer_args" rows="3" placeholder="z. B. --vo=gpu">{{ config.playback.image_viewer_args | default([], true) | join('\n') }}</textarea>
+        <small class="muted">Ein Argument pro Zeile. Für DRM werden Geometrie-Optionen ignoriert.</small>
+      </label>
+      <fieldset class="splitscreen">
+        <legend>Splitscreen</legend>
+        <label class="checkbox">
+          <input type="checkbox" name="splitscreen_enabled" value="1" {% if config.playback.splitscreen_enabled %}checked{% endif %} /> Aktivieren
+        </label>
+        <div class="split-grid">
+          <div>
+            <h4>Linke Seite</h4>
+            <label>Quelle
+              <select name="splitscreen_left_source">
+                <option value="">(keine)</option>
+                {% for source in sources %}
+                <option value="{{ source.name }}" {% if config.playback.splitscreen_left_source == source.name %}selected{% endif %}>{{ source.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Pfad (optional)
+              <input type="text" name="splitscreen_left_path" value="{{ config.playback.splitscreen_left_path }}" />
+            </label>
+          </div>
+          <div>
+            <h4>Rechte Seite</h4>
+            <label>Quelle
+              <select name="splitscreen_right_source">
+                <option value="">(keine)</option>
+                {% for source in sources %}
+                <option value="{{ source.name }}" {% if config.playback.splitscreen_right_source == source.name %}selected{% endif %}>{{ source.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Pfad (optional)
+              <input type="text" name="splitscreen_right_path" value="{{ config.playback.splitscreen_right_path }}" />
+            </label>
+          </div>
+        </div>
+      </fieldset>
+      <button type="submit">Einstellungen speichern</button>
+    </form>
+  </article>
+</section>
+{% endblock %}
