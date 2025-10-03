@@ -112,7 +112,6 @@ fi
 
 echo "Verwende bestehenden Benutzer $USER_NAME für Dienst und Desktop-Integration."
 
-<<<<<<< HEAD
 =======
 DESKTOP_USER="$USER_NAME"
 
