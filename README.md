@@ -64,7 +64,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    curl -sSL https://raw.githubusercontent.com/joni123467/Slideshow/refs/heads/main/scripts/install.sh | sudo bash
    ```
 
-2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Benutzername und Passwort können während der Installation angepasst werden:
+2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Damit die Hardwarebeschleunigung funktioniert, wird der Account – sofern die Gruppen existieren – direkt `video`, `render` und `input` hinzugefügt. Benutzername und Passwort können während der Installation angepasst werden:
 
    ```bash
    sudo ./install.sh
@@ -134,9 +134,11 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 ### Zugriff auf die grafische Oberfläche
 
-- Der systemd-Dienst benötigt Zugriff auf die laufende Desktop-Sitzung (`DISPLAY=:0`). Während der Installation kann optional ein vorhandener Desktop-Benutzer angegeben werden; dessen `.Xauthority`-Datei wird in das Dienstkonto kopiert.
-- Sollte keine gültige `.Xauthority` gefunden werden, weist das Installationsskript darauf hin. In diesem Fall muss die Datei manuell bereitgestellt oder der Dienstbenutzer so gewählt werden, dass er bereits Teil der grafischen Sitzung ist.
+- Der systemd-Dienst benötigt Zugriff auf die laufende Desktop-Sitzung (`DISPLAY=:0`). Während der Installation kann optional ein vorhandener Desktop-Benutzer angegeben werden. Dessen `.Xauthority` wird nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
+- Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden. Alternativ lässt sich die Anwendung ohne Desktop im DRM-Modus betreiben.
+- Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript den Dienstnutzer automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
 - Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
+- Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, wird lediglich eine Warnung protokolliert – der Dienst startet weiter und versucht später erneut, das Display zu erreichen.
 
 ### Headless- und DRM-Betrieb
 

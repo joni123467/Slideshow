@@ -129,6 +129,20 @@ fi
 
 echo "$USER_NAME:$USER_PASSWORD" | chpasswd
 
+GROUP_ADDED=()
+GROUP_MISSING=()
+for supplemental_group in video render input; do
+  if getent group "$supplemental_group" >/dev/null 2>&1; then
+    if id -nG "$USER_NAME" | tr ' ' '\n' | grep -qx "$supplemental_group"; then
+      continue
+    fi
+    usermod -aG "$supplemental_group" "$USER_NAME"
+    GROUP_ADDED+=("$supplemental_group")
+  else
+    GROUP_MISSING+=("$supplemental_group")
+  fi
+done
+
 USER_UID="$(id -u "$USER_NAME")"
 SERVICE_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 if [[ -z "$SERVICE_HOME" ]]; then
@@ -166,7 +180,7 @@ cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
 
-chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" "$APP_DIR/scripts/prestart.sh" 2>/dev/null || true
 
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
@@ -195,6 +209,7 @@ fi
 
 DESKTOP_HOME=""
 XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
+XAUTHORITY_SOURCE=""
 XAUTHORITY_WARNING=0
 if [[ -n "$DESKTOP_USER" ]]; then
   DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
@@ -202,15 +217,15 @@ if [[ -n "$DESKTOP_USER" ]]; then
     echo "Hinweis: Desktop-Benutzer $DESKTOP_USER wurde nicht gefunden."
     DESKTOP_USER=""
   elif [[ -f "$DESKTOP_HOME/.Xauthority" ]]; then
-    install -m 600 -o "$USER_NAME" -g "$USER_NAME" "$DESKTOP_HOME/.Xauthority" "$XAUTHORITY_PATH"
-    echo "Übernehme Xauthority von $DESKTOP_USER nach $XAUTHORITY_PATH"
+    XAUTHORITY_SOURCE="$DESKTOP_HOME/.Xauthority"
+    echo "Xauthority von $DESKTOP_USER wird beim Dienststart synchronisiert."
   else
     echo "WARNUNG: Keine .Xauthority bei $DESKTOP_USER gefunden."
     XAUTHORITY_WARNING=1
   fi
 fi
 
-if [[ ! -f "$XAUTHORITY_PATH" ]]; then
+if [[ -z "$XAUTHORITY_SOURCE" && -n "$DESKTOP_USER" ]]; then
   XAUTHORITY_WARNING=1
 fi
 
@@ -223,9 +238,13 @@ UNIT_INSTALL="WantedBy=multi-user.target"
 SERVICE_ENV=(
   "Environment=PYTHONUNBUFFERED=1"
   "Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR"
+  "Environment=SLIDESHOW_SERVICE_USER=$USER_NAME"
   "Environment=SLIDESHOW_VIDEO_BACKEND=$VIDEO_BACKEND"
   "Environment=SLIDESHOW_IMAGE_BACKEND=$VIDEO_BACKEND"
 )
+if [[ -n "$XAUTHORITY_SOURCE" ]]; then
+  SERVICE_ENV+=("Environment=SLIDESHOW_XAUTHORITY_SOURCE=$XAUTHORITY_SOURCE")
+fi
 if [[ -n "$DESKTOP_USER" ]]; then
   UNIT_AFTER+=" graphical.target"
   UNIT_WANTS+=("Wants=graphical.target")
@@ -246,11 +265,13 @@ fi
   echo "User=$USER_NAME"
   echo "WorkingDirectory=$APP_DIR"
   echo "RuntimeDirectory=$RUNTIME_NAME"
+  echo "PermissionsStartOnly=yes"
   for env in "${SERVICE_ENV[@]}"; do
     echo "$env"
   done
-  echo "ExecStartPre=/bin/sh -c 'if [ -n \"\$DISPLAY\" ]; then for i in \$(seq 1 10); do xset q >/dev/null 2>&1 && exit 0; sleep 2; done; echo \"Display \$DISPLAY nicht erreichbar\" >&2; exit 1; fi'"
+  echo "ExecStartPre=$APP_DIR/scripts/prestart.sh"
   echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
+  echo "ExecStartPost=/bin/sh -c 'if [ -n \"\$DISPLAY\" ]; then echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet (Backend: \$SLIDESHOW_VIDEO_BACKEND)\" | systemd-cat -t slideshow; else echo \"Slideshow im Headless-Modus gestartet\" | systemd-cat -t slideshow; fi'"
   echo "Restart=on-failure"
   echo "RestartSec=5"
   echo ""
@@ -263,6 +284,15 @@ systemctl enable --now slideshow.service
 
 chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
 
+GROUP_SUMMARY="Keine zusätzlichen Gruppen ergänzt."
+if [[ ${#GROUP_ADDED[@]} -gt 0 ]]; then
+  GROUP_SUMMARY="Dienstbenutzer zu folgenden Geräte-Gruppen hinzugefügt: ${GROUP_ADDED[*]}"
+fi
+GROUP_MISSING_NOTICE=""
+if [[ ${#GROUP_MISSING[@]} -gt 0 ]]; then
+  GROUP_MISSING_NOTICE="Fehlende Systemgruppen bitte manuell prüfen: ${GROUP_MISSING[*]}"
+fi
+
 if [[ "$XAUTHORITY_WARNING" -eq 1 ]]; then
   echo "WARNUNG: Keine gültige Xauthority-Datei gefunden. Stellen Sie sicher, dass $USER_NAME Zugriff auf die grafische Sitzung hat (DISPLAY=:0)."
 fi
@@ -274,4 +304,6 @@ Branch: $BRANCH
 Dienstbenutzer: $USER_NAME
 Video-Backend: $VIDEO_BACKEND
 Desktop-Anzeige: ${DESKTOP_USER:-keine}
+$GROUP_SUMMARY
+${GROUP_MISSING_NOTICE:-}
 INFO
