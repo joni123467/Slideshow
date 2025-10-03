@@ -347,16 +347,6 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         display_resolution = (request.form.get("display_resolution") or playback.display_resolution).strip()
         playback.display_resolution = display_resolution
 
-        video_backend = (request.form.get("video_backend") or playback.video_backend or "auto").lower()
-        if video_backend not in {"auto", "x11", "drm"}:
-            video_backend = "auto"
-        playback.video_backend = video_backend
-
-        image_backend = (request.form.get("image_backend") or playback.image_backend or video_backend).lower()
-        if image_backend not in {"auto", "x11", "drm"}:
-            image_backend = video_backend
-        playback.image_backend = image_backend
-
         playback.video_player_args = parse_args("video_player_args", playback.video_player_args)
         playback.image_viewer_args = parse_args("image_viewer_args", playback.image_viewer_args)
 
