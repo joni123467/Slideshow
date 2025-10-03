@@ -4,6 +4,14 @@
 <section class="grid overview-grid">
   <article>
     <h2>Aktueller Status</h2>
+    <div class="status-flags">
+      <span data-status="service" class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+        {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
+      </span>
+      <span data-status="info" class="status-indicator {% if state and state.info_screen %}status-indicator--info{% else %}status-indicator--neutral{% endif %}">
+        {% if state and state.info_screen %}Infobildschirm aktiv{% else %}Infobildschirm aus{% endif %}
+      </span>
+    </div>
     <div class="status-block">
       <h3>Primäre Anzeige</h3>
       <p><strong>Datei:</strong> <span data-state="primary-item">{{ state.primary_item or '–' }}</span></p>
@@ -78,6 +86,11 @@
       infoScreen: document.querySelector('[data-state="info-screen"]'),
     };
 
+    const statusIndicators = {
+      service: document.querySelector('[data-status="service"]'),
+      info: document.querySelector('[data-status="info"]'),
+    };
+
     const secondaryBlock = document.querySelector('[data-secondary-status]');
     const formatter = new Intl.DateTimeFormat('de-DE', {
       day: '2-digit',
@@ -97,6 +110,15 @@
         return '–';
       }
       return formatter.format(new Date(numeric * 1000));
+    }
+
+    function setIndicator(element, active, activeClass, inactiveClass, activeLabel, inactiveLabel) {
+      if (!element) {
+        return;
+      }
+      element.classList.remove('status-indicator--ok', 'status-indicator--down', 'status-indicator--info', 'status-indicator--neutral');
+      element.classList.add(active ? activeClass : inactiveClass);
+      element.textContent = active ? activeLabel : inactiveLabel;
     }
 
     async function refreshState() {
@@ -126,6 +148,9 @@
           }
           stateTargets.infoScreen.textContent = parts.join(' ');
         }
+
+        setIndicator(statusIndicators.service, Boolean(data.service_active), 'status-indicator--ok', 'status-indicator--down', 'Dienst läuft', 'Dienst ist inaktiv');
+        setIndicator(statusIndicators.info, Boolean(data.info_screen), 'status-indicator--info', 'status-indicator--neutral', 'Infobildschirm aktiv', 'Infobildschirm aus');
       } catch (err) {
         console.debug('Status konnte nicht aktualisiert werden', err);
       }

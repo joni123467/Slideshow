@@ -2,17 +2,30 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import functools
+import io
 import logging
 import subprocess
 from typing import List, Optional, Tuple
 
-from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import (
+    Flask,
+    Response,
+    abort,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig
+from .config import AppConfig, export_config_bundle, import_config_bundle
 from .logging_config import available_logs
 from .media import MediaManager
 from .network import NetworkManager
@@ -65,6 +78,12 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "slideshow_version": app.config.get("SLIDESHOW_VERSION", "0.0.0"),
             "log_sources": available_logs(),
         }
+
+    def service_active(status: Optional[str]) -> bool:
+        if not status:
+            return False
+        normalized = status.strip().lower()
+        return normalized in {"active", "active (running)", "running"}
 
     @app.template_filter("datetimeformat")
     def datetimeformat(value, fmt="%d.%m.%Y %H:%M:%S"):
@@ -125,6 +144,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             playlist=playlist_preview,
             config=cfg,
             service_status=service_status,
+            service_active=service_active(service_status),
         )
 
     @app.route("/media/preview/<string:source>/<path:media_path>")
@@ -228,9 +248,11 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/network")
     @pam_required
     def network_settings():
+        current = network_manager.current_settings()
         return render_template(
             "network.html",
             config=cfg,
+            current=current,
         )
 
     @app.route("/system")
@@ -247,7 +269,55 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             has_branch_info=bool(branches or current_branch),
             fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
+            service_active=service_active(service_status),
         )
+
+    @app.route("/config/export")
+    @pam_required
+    def export_config():
+        archive = export_config_bundle()
+        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        filename = f"slideshow-config-{timestamp}.zip"
+        return send_file(
+            io.BytesIO(archive),
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=filename,
+        )
+
+    @app.route("/config/import", methods=["POST"])
+    @pam_required
+    def import_config():
+        nonlocal cfg, media_manager, network_manager, player
+        file = request.files.get("config_file")
+        if not file or not file.filename:
+            flash("Keine Konfigurationsdatei ausgewählt", "danger")
+            return redirect(url_for("system_settings"))
+        data = file.read()
+        if not data:
+            flash("Die hochgeladene Datei ist leer", "danger")
+            return redirect(url_for("system_settings"))
+        try:
+            new_cfg = import_config_bundle(data)
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("system_settings"))
+
+        was_running = player.is_running()
+        player.stop()
+
+        cfg = new_cfg
+        media_manager = MediaManager(cfg)
+        network_manager = NetworkManager(cfg)
+        new_player = PlayerService(cfg)
+        app.extensions["player_service"] = new_player
+        player = new_player
+
+        if was_running or cfg.playback.auto_start:
+            player.start()
+
+        flash("Konfiguration importiert", "success")
+        return redirect(url_for("system_settings"))
 
     @app.route("/logs/<string:name>")
     @pam_required
@@ -499,6 +569,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def api_state():
         state = get_state()
+        svc_status = system_manager.service_status()
         return jsonify({
             "primary_item": state.primary_item,
             "primary_status": state.primary_status,
@@ -508,6 +579,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "secondary_started_at": state.secondary_started_at,
             "info_screen": state.info_screen,
             "info_manual": state.info_manual,
+            "service_status": svc_status,
+            "service_active": service_active(svc_status),
         })
 
     @app.route("/api/config")

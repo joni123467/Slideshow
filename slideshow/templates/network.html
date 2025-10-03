@@ -7,25 +7,29 @@
     <p class="muted">Änderungen am Netzwerk erfordern Administratorrechte und führen ggf. zu einer kurzfristigen Unterbrechung der Verbindung.</p>
     <form method="post" action="{{ url_for('update_network') }}" class="grid-form">
       <label>Hostname
-        <input type="text" name="hostname" value="{{ config.network.hostname or '' }}" placeholder="raspberrypi" />
+        <input type="text" name="hostname" value="{{ current.hostname or config.network.hostname or '' }}" placeholder="raspberrypi" />
       </label>
       <label>Interface
-        <input type="text" name="interface" value="{{ config.network.interface }}" />
+        <input type="text" name="interface" value="{{ current.interface or config.network.interface }}" />
       </label>
       <label>Modus
         <select name="mode">
-          <option value="dhcp" {% if config.network.mode == 'dhcp' %}selected{% endif %}>DHCP</option>
-          <option value="static" {% if config.network.mode == 'static' %}selected{% endif %}>Statisch</option>
+          {% set mode = current.mode or config.network.mode %}
+          <option value="dhcp" {% if mode == 'dhcp' %}selected{% endif %}>DHCP</option>
+          <option value="static" {% if mode == 'static' %}selected{% endif %}>Statisch</option>
         </select>
       </label>
       <label>Statische Adresse (CIDR)
-        <input type="text" name="address" value="{{ config.network.static.address }}" />
+        {% set address = current.address or config.network.static.address %}
+        <input type="text" name="address" value="{{ address or '' }}" />
       </label>
       <label>Gateway
-        <input type="text" name="router" value="{{ config.network.static.router }}" />
+        {% set router = current.router or config.network.static.router %}
+        <input type="text" name="router" value="{{ router or '' }}" />
       </label>
       <label>DNS-Server (kommagetrennt)
-        <input type="text" name="dns" value="{{ config.network.static.dns | join(',') }}" />
+        {% set dns_value = current.dns or config.network.static.dns %}
+        <input type="text" name="dns" value="{{ dns_value | join(',') if dns_value else '' }}" />
       </label>
       <button type="submit">Einstellungen übernehmen</button>
     </form>
@@ -36,7 +40,9 @@
     <ul class="hint-list">
       <li>Bei einer statischen Konfiguration sollten Adresse, Gateway und DNS-Server in demselben Subnetz liegen.</li>
       <li>Nach Änderungen empfiehlt sich ein kurzer Neustart der Netzwerkverbindung oder des Systems.</li>
-      <li>Der aktuelle Hostname lautet <strong>{{ config.network.hostname or 'unbekannt' }}</strong>.</li>
+      <li>Der aktuelle Hostname lautet <strong>{{ current.hostname or config.network.hostname or 'unbekannt' }}</strong>.</li>
+      <li>Aktive Adresse: <strong>{{ current.address or 'unbekannt' }}</strong>{% if current.router %}, Gateway: <strong>{{ current.router }}</strong>{% endif %}.</li>
+      {% if current.dns %}<li>DNS-Server laut System: <strong>{{ current.dns | join(', ') }}</strong></li>{% endif %}
     </ul>
   </article>
 </section>

@@ -153,6 +153,60 @@ form {
   margin: 0;
 }
 
+.status-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--fg);
+}
+
+.status-indicator::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.status-indicator--ok {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #34d399;
+}
+
+.status-indicator--down {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.status-indicator--info {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #38bdf8;
+}
+
+.status-indicator--neutral {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #94a3b8;
+}
+
 .logs {
   display: flex;
   flex-direction: column;
@@ -218,6 +272,13 @@ form {
 .grid-form fieldset legend {
   padding: 0 0.5rem;
   font-weight: 600;
+}
+
+.grid-form > button,
+.grid-form > .button-link {
+  justify-self: start;
+  width: auto;
+  max-width: 280px;
 }
 
 .split-grid {

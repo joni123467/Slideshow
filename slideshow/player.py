@@ -71,7 +71,11 @@ class PlayerService:
         )
 
     def reload(self) -> None:
+        self._mpv_args = self._collect_mpv_args()
         self._reload.set()
+
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
     def show_info_screen(self, enabled: bool) -> None:
         if enabled:
@@ -373,10 +377,10 @@ class PlayerService:
         if not source:
             LOGGER.warning("Quelle %s nicht gefunden", item.source)
             return
-        base = pathlib.Path(source.path)
-        full_path = base / item.path
-        if not full_path.exists():
-            LOGGER.warning("Datei %s nicht gefunden", full_path)
+        try:
+            full_path = self.manager.resolve_media_path(item.source, item.path)
+        except (FileNotFoundError, PermissionError, ValueError) as exc:
+            LOGGER.warning("Datei %s/%s nicht verfügbar: %s", item.source, item.path, exc)
             return
         if item.type == "video":
             self._play_video(full_path, side=side, geometry=geometry)

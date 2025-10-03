@@ -28,7 +28,12 @@
 
   <article>
     <h2>Service &amp; Aktionen</h2>
-    <p><strong>Service-Status:</strong> {{ service_status or 'unbekannt' }}</p>
+    <div class="status-flags">
+      <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+        {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
+      </span>
+      <span class="muted">Status laut systemd: {{ service_status or 'unbekannt' }}</span>
+    </div>
     <div class="button-row">
       <form method="post" action="{{ url_for('system_service', action='restart') }}">
         <button type="submit">Service neu starten</button>
@@ -48,6 +53,20 @@
         <button type="submit" class="danger">Herunterfahren</button>
       </form>
     </div>
+  </article>
+
+  <article>
+    <h2>Konfiguration</h2>
+    <div class="button-row">
+      <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>
+    </div>
+    <form method="post" action="{{ url_for('import_config') }}" enctype="multipart/form-data" class="inline-form">
+      <label>Datei auswählen
+        <input type="file" name="config_file" accept=".zip,.yml,.yaml,.json" required />
+      </label>
+      <button type="submit">Konfiguration importieren</button>
+      <p class="muted">Unterstützt werden exportierte ZIP-Archive oder eine einzelne <code>config.yml</code>.</p>
+    </form>
   </article>
 
   <article class="logs">

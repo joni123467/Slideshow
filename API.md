@@ -22,9 +22,13 @@ Aktueller Wiedergabestatus.
   "secondary_status": "stopped",
   "secondary_started_at": null,
   "info_screen": false,
-  "info_manual": false
+  "info_manual": false,
+  "service_status": "active",
+  "service_active": true
 }
 ```
+
+Das Feld `service_status` spiegelt den Rohwert von `systemctl is-active` wider, `service_active` ist ein boolesches Convenience-Feld.
 
 ### `GET /api/config`
 
@@ -98,6 +102,16 @@ Entfernt eine Quelle (die lokale Standardquelle ist geschützt).
 ### `GET /media/preview/<source>/<path>`
 
 Liefert ein kleines JPEG-Vorschaubild für Bilddateien einer Quelle. Für andere Dateitypen wird HTTP 415 zurückgegeben. Der Endpunkt ist authentifizierungspflichtig und hauptsächlich für die Dashboard-Anzeige gedacht.
+
+## Systemverwaltung
+
+### `GET /config/export`
+
+Lädt die aktuelle Konfiguration (inklusive `config.yml` und optional `secrets.json`, falls vorhanden) als ZIP-Archiv herunter.
+
+### `POST /config/import`
+
+Erwartet ein Multipart-Formular mit dem Feld `config_file`. Akzeptiert entweder das zuvor exportierte ZIP-Archiv oder eine einzelne `config.yml`. Nach erfolgreichem Import werden Player- und Netzwerkverwaltung neu initialisiert.
 
 ## Fehlercodes
 

@@ -60,9 +60,11 @@ class MpvController:
             ]
             if self.geometry:
                 cmd.append(f"--geometry={self.geometry}")
+                cmd.append("--no-border")
+                cmd.append("--keepaspect-window=no")
             else:
                 cmd.append("--fullscreen")
-            cmd.extend(self._extra_args)
+            cmd.extend(self._filtered_args())
             try:
                 self._process = subprocess.Popen(
                     cmd,
@@ -161,6 +163,33 @@ class MpvController:
     def _command(self, payload) -> Optional[dict]:
         with self._lock:
             return self._command_no_lock(payload)
+
+    def _filtered_args(self) -> list[str]:
+        if not self._extra_args:
+            return []
+        if not self.geometry:
+            return list(self._extra_args)
+
+        blocked_flags = {"--fullscreen", "--fs"}
+        blocked_single_value = {"--geometry", "--screen", "--autofit", "--autofit-larger"}
+        blocked_prefixes = ("--geometry=", "--fs=", "--fullscreen=", "--screen=", "--autofit=", "--autofit-larger=")
+
+        filtered: list[str] = []
+        skip_next = False
+        for arg in self._extra_args:
+            if skip_next:
+                skip_next = False
+                continue
+            lowered = arg.lower()
+            if lowered in blocked_flags:
+                continue
+            if lowered in blocked_single_value:
+                skip_next = True
+                continue
+            if any(lowered.startswith(prefix) for prefix in blocked_prefixes):
+                continue
+            filtered.append(arg)
+        return filtered
 
     def _command_no_lock(self, payload) -> Optional[dict]:
         if not self._socket_path:

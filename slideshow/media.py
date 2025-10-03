@@ -18,10 +18,12 @@ from PIL import Image
 
 from .config import (
     AppConfig,
+    CACHE_DIR,
     DATA_DIR,
     MediaSource,
     PlaylistItem,
     delete_secret,
+    ensure_cache_dir,
     load_secret,
     save_secret,
 )
@@ -30,6 +32,8 @@ LOGGER = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+IGNORED_EXTENSIONS = {".db", ".ini", ".tmp", ".ds_store"}
+CACHEABLE_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
@@ -90,6 +94,7 @@ class MediaManager:
             MOUNT_ROOT.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             LOGGER.warning("Konnte Mount-Verzeichnis %s nicht anlegen: %s", MOUNT_ROOT, exc)
+        ensure_cache_dir()
         self._migrate_mount_points()
         self._ensure_local_directories()
 
@@ -372,18 +377,50 @@ class MediaManager:
         self.config.save()
         return source
 
+    def _cache_path(self, source: MediaSource, relative_path: str) -> pathlib.Path:
+        return (CACHE_DIR / source.name) / pathlib.Path(relative_path)
+
+    def _should_cache(self, path: pathlib.Path) -> bool:
+        return path.suffix.lower() in CACHEABLE_EXTENSIONS
+
+    def _ensure_cached(self, source: MediaSource, path: pathlib.Path, relative_path: str) -> pathlib.Path:
+        if source.type == "local" or not self._should_cache(path):
+            return path
+        cache_target = self._cache_path(source, relative_path)
+        try:
+            cache_target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            LOGGER.debug("Konnte Cache-Verzeichnis %s nicht erstellen", cache_target.parent)
+            return path
+        try:
+            if not cache_target.exists() or path.stat().st_mtime > cache_target.stat().st_mtime:
+                shutil.copy2(path, cache_target)
+        except FileNotFoundError:
+            if cache_target.exists():
+                return cache_target
+        except OSError as exc:
+            LOGGER.debug("Konnte %s nicht in den Cache kopieren: %s", path, exc)
+            return path
+        return cache_target if cache_target.exists() else path
+
     def resolve_media_path(self, source_name: str, relative_path: str) -> pathlib.Path:
         source = self.config.get_source(source_name)
         if not source:
             raise ValueError(f"Unbekannte Quelle: {source_name}")
-        self.mount_source(source)
+        try:
+            self.mount_source(source)
+        except Exception as exc:
+            LOGGER.debug("Mount für %s fehlgeschlagen, nutze ggf. Cache: %s", source_name, exc)
         base = pathlib.Path(source.path).resolve()
         target = (base / pathlib.Path(relative_path)).resolve()
         if base not in target.parents and target != base:
             raise PermissionError("Pfad liegt außerhalb der Quelle")
-        if not target.exists() or not target.is_file():
-            raise FileNotFoundError(f"Datei {target} nicht gefunden")
-        return target
+        if target.exists() and target.is_file():
+            return self._ensure_cached(source, target, relative_path)
+        cached = self._cache_path(source, relative_path)
+        if cached.exists() and cached.is_file():
+            return cached
+        raise FileNotFoundError(f"Datei {target} nicht gefunden")
 
     def generate_preview(self, source_name: str, relative_path: str, size: tuple[int, int] = (240, 135)) -> tuple[bytes, str]:
         path = self.resolve_media_path(source_name, relative_path)
@@ -458,6 +495,10 @@ class MediaManager:
         return self.config.playlist
 
     def add_to_playlist(self, item: PlaylistItem) -> None:
+        detected = self.detect_item_type(pathlib.Path(item.path).name)
+        if not detected:
+            raise ValueError(f"Datei {item.path} wird nicht unterstützt")
+        item.type = detected
         self.config.playlist.append(item)
         self.config.save()
 
@@ -466,8 +507,10 @@ class MediaManager:
             del self.config.playlist[index]
             self.config.save()
 
-    def detect_item_type(self, path: str) -> str:
+    def detect_item_type(self, path: str) -> Optional[str]:
         ext = pathlib.Path(path).suffix.lower()
+        if ext in IGNORED_EXTENSIONS:
+            return None
         if ext in IMAGE_EXTENSIONS:
             return "image"
         if ext in VIDEO_EXTENSIONS:
@@ -478,7 +521,7 @@ class MediaManager:
                 return "image"
             if mime.startswith("video"):
                 return "video"
-        return "image"
+        return None
 
     def scan_directory(self, source: MediaSource, base_path: Optional[str] = None) -> List[PlaylistItem]:
         items: List[PlaylistItem] = []
@@ -495,6 +538,8 @@ class MediaManager:
             if file.is_dir():
                 continue
             item_type = self.detect_item_type(file.name)
+            if not item_type:
+                continue
             try:
                 relative = file.relative_to(source_root)
             except ValueError:
