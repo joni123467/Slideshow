@@ -99,7 +99,20 @@ Für lokale Entwicklung kann der Server manuell gestartet werden:
 python manage.py run
 ```
 
+Vor dem ersten Start sollten alle Python-Abhängigkeiten installiert werden – entweder über Poetry (`poetry install`) oder klassisch mit `pip install -r requirements.txt`. Dadurch steht unter anderem das Paket `flask-login` bereit, das für die Webanmeldung benötigt wird.
+
 Standardmäßig wird dabei der Flask-Debug-Server auf Port `8080` im lokalen Netzwerk erreichbar.
+
+### Datenablage konfigurieren
+
+Die Anwendung legt Konfigurations- und Statusdateien in einem beschreibbaren Datenverzeichnis ab. Standardmäßig wird dafür `~/.slideshow` verwendet. Über die Umgebungsvariable `SLIDESHOW_DATA_DIR` kann ein alternatives Verzeichnis angegeben werden:
+
+```bash
+export SLIDESHOW_DATA_DIR=/var/lib/slideshow
+python manage.py run
+```
+
+Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automatisch auf das Verzeichnis im Benutzerprofil (`~/.slideshow`) zurück.
 
 ## Sicherheitshinweise
 

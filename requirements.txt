@@ -1,0 +1,6 @@
+flask>=2.2,<3.0
+flask-login>=0.6,<0.7
+pyyaml>=6.0,<7.0
+watchdog>=3.0,<4.0
+simplepam>=0.1.5,<0.2
+pillow>=11.0,<12.0
