@@ -47,6 +47,85 @@
 
   <article>
     <h2>Playlist-Vorschau</h2>
+    {% if config.playback.splitscreen_enabled %}
+    <p class="muted">Die Splitscreen-Wiedergabe nutzt getrennte Listen. Die linke bzw. rechte Seite berücksichtigt jeweils den gewählten Unterordner.</p>
+    <div class="split-grid playlist-preview__split">
+      <div>
+        <h3>Linke Seite</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Vorschau</th>
+                <th>Datei</th>
+                <th>Quelle</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in splitscreen_left %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>
+                  {% if item.type == 'image' %}
+                  <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% else %}
+                  <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.path }}</td>
+                <td>{{ item.source }}</td>
+                <td>{{ item.type }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Rechte Seite</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Vorschau</th>
+                <th>Datei</th>
+                <th>Quelle</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in splitscreen_right %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>
+                  {% if item.type == 'image' %}
+                  <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% else %}
+                  <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.path }}</td>
+                <td>{{ item.source }}</td>
+                <td>{{ item.type }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% else %}
     <p class="muted">Die Wiedergabe wird automatisch aus allen aktiv überwachten Quellen aufgebaut. Neu hinzugefügte Dateien werden nach kurzer Zeit ohne manuelle Eingriffe angezeigt.</p>
     <div class="table-wrapper">
       <table>
@@ -82,6 +161,7 @@
         </tbody>
       </table>
     </div>
+    {% endif %}
     <a class="button-link" href="{{ url_for('media_settings') }}">Quellen verwalten</a>
   </article>
 </section>

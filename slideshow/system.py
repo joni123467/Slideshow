@@ -1,9 +1,11 @@
 """Hilfsfunktionen für System- und Deployment-Aufgaben."""
 from __future__ import annotations
 
+import datetime
 import logging
 import os
 import pathlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -15,6 +17,12 @@ LOGGER = logging.getLogger(__name__)
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
+try:
+    from .config import DATA_DIR
+except ImportError:  # pragma: no cover - Fallback für frühe Initialisierung
+    DATA_DIR = pathlib.Path.home() / ".slideshow"
+
+UPDATE_LOG = DATA_DIR / "logs" / "update.log"
 
 
 def resolve_hostname() -> str:
@@ -57,6 +65,7 @@ class SystemManager:
         self.install_branch_file = self.repo_dir / ".install_branch"
         self.install_repo_file = self.repo_dir / ".install_repo"
         self.fallback_repo = fallback_repo
+        self.update_log_path = UPDATE_LOG
         detected_repo = self._read_install_file(self.install_repo_file)
         if detected_repo:
             self.fallback_repo = detected_repo
@@ -115,7 +124,7 @@ class SystemManager:
         ordered = sorted((sort_key(branch) for branch in unique_branches))
         return [entry[-1] for entry in ordered]
 
-    def update(self, branch: str) -> subprocess.CompletedProcess:
+    def update(self, branch: str) -> subprocess.Popen:
         if not branch:
             raise ValueError("Branch darf nicht leer sein")
         script = self.scripts_dir / "update.sh"
@@ -124,8 +133,24 @@ class SystemManager:
         else:
             if not self._has_git_repo():
                 raise RuntimeError("Keine Git-Installation vorhanden, Update nicht möglich")
-            cmd = ["git", "-C", str(self.repo_dir), "pull", "origin", branch]
-        return self._run(cmd, use_sudo=True)
+            repo_path = shlex.quote(str(self.repo_dir))
+            remote_branch = shlex.quote(branch)
+            cmd = [
+                "bash",
+                "-lc",
+                (
+                    "set -euo pipefail; "
+                    f"cd {repo_path}; "
+                    f"git fetch origin {remote_branch}; "
+                    f"git checkout {remote_branch}; "
+                    f"git reset --hard origin/{remote_branch}; "
+                    f"echo {shlex.quote(branch)} > {shlex.quote(str(self.install_branch_file))}"
+                ),
+            ]
+        process = self._spawn_with_log(cmd, use_sudo=True, branch=branch)
+        if not isinstance(process, subprocess.Popen):
+            raise RuntimeError("Update konnte nicht gestartet werden")
+        return process
 
     # Service-Steuerung -----------------------------------------------
     def service_status(self, service: str = "slideshow.service") -> str:
@@ -197,6 +222,56 @@ class SystemManager:
                 else:
                     LOGGER.error("Befehl %s schlug fehl: %s", command, stderr or exc)
             raise
+
+    def _spawn_with_log(
+        self,
+        command: List[str],
+        *,
+        use_sudo: bool = False,
+        branch: Optional[str] = None,
+    ) -> subprocess.Popen:
+        if use_sudo and os.geteuid() != 0:
+            sudo = shutil.which("sudo")
+            if not sudo:
+                raise RuntimeError("sudo ist nicht verfügbar, benötigte Rechte können nicht angefordert werden")
+            command = [sudo, "-n"] + command
+        log_path = self.update_log_path
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Konnte Update-Log-Verzeichnis nicht erstellen: %s", exc)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        header_parts = [f"[{timestamp}] Update gestartet"]
+        if branch:
+            header_parts.append(f"Branch: {branch}")
+        header = " - ".join(header_parts)
+        command_repr = " ".join(shlex.quote(part) for part in command)
+        try:
+            with log_path.open("a", encoding="utf-8") as log_handle:
+                if log_handle.tell() > 0:
+                    log_handle.write("\n")
+                log_handle.write(f"{header}\n")
+                log_handle.write(f"Befehl: {command_repr}\n")
+        except OSError as exc:
+            LOGGER.warning("Konnte Update-Log nicht schreiben: %s", exc)
+        try:
+            log_file = log_path.open("a", encoding="utf-8")
+        except OSError as exc:
+            LOGGER.error("Update-Logdatei %s kann nicht geöffnet werden: %s", log_path, exc)
+            raise RuntimeError("Update-Log konnte nicht geöffnet werden") from exc
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception:
+            log_file.close()
+            raise
+        log_file.close()
+        LOGGER.info("Update-Prozess gestartet (PID %s) für Branch %s", getattr(process, "pid", "?"), branch)
+        return process
 
     def _has_git_repo(self) -> bool:
         git_dir = self.repo_dir / ".git"
