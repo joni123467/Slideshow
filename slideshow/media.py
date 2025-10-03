@@ -32,33 +32,20 @@ DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
 MOUNT_ROOT = (DATA_DIR / "mounts").resolve()
 
 
-def _normalize_subpath(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    sanitized = str(value).replace("\\", "/").strip("/")
-    return sanitized or None
+def _paths_equal(left: pathlib.Path, right: pathlib.Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except FileNotFoundError:
+        return left.absolute() == right.absolute()
 
 
-def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
-    """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
-
-    if not raw_path:
-        raise ValueError("SMB-Pfad darf nicht leer sein")
-
-    cleaned = raw_path.strip()
-    if cleaned.lower().startswith("smb://"):
-        cleaned = cleaned[6:]
-    cleaned = cleaned.lstrip("\\/")
-    cleaned = cleaned.replace("\\", "/")
-    parts = [part for part in cleaned.split("/") if part]
-
-    if len(parts) < 2:
-        raise ValueError("SMB-Pfad muss Server und Freigabe enthalten")
-
-    server = parts[0]
-    share = parts[1]
-    subpath = "/".join(parts[2:]) if len(parts) > 2 else None
-    return server, share, _normalize_subpath(subpath)
+def _unescape_mount_path(value: str) -> str:
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
 
 
 def _normalize_subpath(value: Optional[str]) -> Optional[str]:
@@ -103,6 +90,26 @@ class MediaManager:
         self._ensure_local_directories()
 
     # Initialisierungs-Helfer --------------------------------------------
+    def _is_mount_active(self, mount_point: pathlib.Path) -> bool:
+        path = pathlib.Path(mount_point)
+        try:
+            resolved = path.resolve()
+        except FileNotFoundError:
+            return False
+        if os.path.ismount(str(resolved)):
+            return True
+        try:
+            with open("/proc/self/mounts", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        mount_target = pathlib.Path(_unescape_mount_path(parts[1]))
+                        if _paths_equal(mount_target, resolved):
+                            return True
+        except OSError:
+            pass
+        return False
+
     def _ensure_local_directories(self) -> None:
         for source in self.config.media_sources:
             if source.type == "local":
@@ -164,7 +171,7 @@ class MediaManager:
         if changed:
             self.config.save()
 
-    def _run_mount_helper(self, *args: str) -> subprocess.CompletedProcess:
+    def _run_mount_helper(self, *args: str, ignore_busy: bool = False) -> subprocess.CompletedProcess:
         helper = self.mount_helper
         if not helper.exists():
             raise FileNotFoundError(f"Mount-Helfer {helper} nicht gefunden")
@@ -180,6 +187,13 @@ class MediaManager:
             stderr = (result.stderr or "").strip()
             stdout = (result.stdout or "").strip()
             message = stderr or stdout or "unbekannter Fehler"
+            if ignore_busy and result.returncode == 16:
+                LOGGER.debug(
+                    "Mount-Helfer meldete 'busy' (%s), behandle als Erfolg: %s",
+                    result.returncode,
+                    message,
+                )
+                return result
             raise RuntimeError(f"Mount-Helfer fehlgeschlagen ({result.returncode}): {message}")
         return result
 
@@ -257,6 +271,13 @@ class MediaManager:
             self.unmount_source(source)
         except Exception:
             LOGGER.debug("Unmount vor dem Löschen von %s fehlgeschlagen", name)
+        mount_path = pathlib.Path(source.path)
+        try:
+            if mount_path.exists() and mount_path.is_dir():
+                if mount_path.resolve().is_relative_to(MOUNT_ROOT):
+                    shutil.rmtree(mount_path, ignore_errors=True)
+        except Exception as exc:
+            LOGGER.debug("Konnte Mount-Verzeichnis %s nicht entfernen: %s", mount_path, exc)
         self.config.media_sources = [src for src in self.config.media_sources if src.name != name]
         delete_secret(f"smb:{name}")
         self.config.save()
@@ -267,6 +288,9 @@ class MediaManager:
         password = load_secret(f"smb:{source.name}")
         mount_point = pathlib.Path(source.path)
         mount_point.mkdir(parents=True, exist_ok=True)
+        if self._is_mount_active(mount_point):
+            LOGGER.debug("Mountpunkt %s ist bereits aktiv", mount_point)
+            return
         uid = os.getuid()
         gid = os.getgid()
         vers = source.options.get("vers", "3.1.1")
@@ -299,7 +323,7 @@ class MediaManager:
         share = f"//{source.options['server']}/{source.options['share']}"
         LOGGER.info("Mount SMB share %s auf %s", share, mount_point)
         try:
-            self._run_mount_helper("mount", share, str(mount_point), options)
+            self._run_mount_helper("mount", share, str(mount_point), options, ignore_busy=True)
         except Exception as exc:
             LOGGER.warning("Mount von %s fehlgeschlagen: %s", share, exc)
             raise
