@@ -27,16 +27,23 @@ body {
   flex-wrap: wrap;
 }
 
-.topbar nav {
+.topbar .main-nav {
   display: flex;
   gap: 1rem;
 }
 
-.topbar nav a {
+.topbar .main-nav a {
   color: var(--fg);
-  margin-left: 1rem;
   text-decoration: none;
   font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.topbar .main-nav a.active,
+.topbar .main-nav a:hover {
+  background: rgba(59, 130, 246, 0.25);
 }
 
 .topbar .version {
@@ -55,6 +62,14 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.system-grid {
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+}
+
 article {
   background: var(--card);
   padding: 1.5rem;
@@ -66,10 +81,26 @@ article h2 {
   margin-top: 0;
 }
 
+.status-block {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-block h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1rem;
+}
+
+.table-wrapper {
+  overflow-x: auto;
 }
 
 table th,
@@ -95,10 +126,16 @@ button {
   border: none;
   cursor: pointer;
   color: white;
+  transition: filter 0.2s ease;
 }
 
 button.danger {
   background: #e53e3e;
+}
+
+button:hover,
+.button-link:hover {
+  filter: brightness(1.1);
 }
 
 form {
@@ -141,9 +178,92 @@ form {
   white-space: pre-wrap;
 }
 
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.table-actions form {
+  margin: 0;
+}
+
 .inline-form label {
   display: flex;
   flex-direction: column;
+  margin-bottom: 0.5rem;
+}
+
+.grid-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.grid-form label,
+.grid-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.grid-form fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.grid-form fieldset legend {
+  padding: 0 0.5rem;
+  font-weight: 600;
+}
+
+.split-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.split-grid h4 {
+  margin: 0 0 0.5rem 0;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.checkbox input[type="checkbox"] {
+  width: auto;
+}
+
+.muted {
+  color: rgba(248, 250, 252, 0.75);
+  font-size: 0.95rem;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(59, 130, 246, 0.35);
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.hint-list {
+  padding-left: 1.2rem;
+}
+
+.hint-list li {
   margin-bottom: 0.5rem;
 }
 

@@ -1,0 +1,93 @@
+{% extends 'layout.html' %}
+{% block title %}Medienquellen – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Verfügbare Quellen</h2>
+    <p class="muted">Alle Quellen mit aktiviertem automatischem Abgleich werden regelmäßig eingehängt und nach neuen Medien durchsucht.</p>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Typ</th>
+            <th>Mountpunkt</th>
+            <th>Unterordner</th>
+            <th>Automatisch</th>
+            <th>Dateien</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for source in sources %}
+          <tr>
+            <td>{{ source.name }}</td>
+            <td>{{ source.type }}</td>
+            <td><code>{{ source.path }}</code></td>
+            <td>{% if source.subpath %}<code>{{ source.subpath }}</code>{% else %}–{% endif %}</td>
+            <td>{% if source.auto_scan %}Ja{% else %}Nein{% endif %}</td>
+            <td>
+              {% if auto_totals.get(source.name) is not none %}
+                {{ auto_totals[source.name] }}
+              {% else %}
+                –
+              {% endif %}
+            </td>
+            <td>
+              <div class="table-actions">
+                <form method="post" action="{{ url_for('toggle_auto_scan', name=source.name) }}">
+                  {% if source.auto_scan %}
+                  <input type="hidden" name="enabled" value="0" />
+                  <button type="submit">Automatik deaktivieren</button>
+                  {% else %}
+                  <input type="hidden" name="enabled" value="1" />
+                  <button type="submit">Automatik aktivieren</button>
+                  {% endif %}
+                </form>
+                {% if source.type != 'local' %}
+                <form method="post" action="{{ url_for('delete_source', name=source.name) }}" onsubmit="return confirm('Quelle {{ source.name }} wirklich löschen?');">
+                  <input type="hidden" name="confirm" value="1" />
+                  <button type="submit" class="danger">Löschen</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7">Keine Quellen konfiguriert.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article>
+    <h2>SMB-Quelle hinzufügen</h2>
+    <form method="post" action="{{ url_for('add_smb_source') }}" class="grid-form">
+      <label>Bezeichnung
+        <input type="text" name="name" placeholder="z. B. Produktion" required />
+      </label>
+      <label>SMB-Pfad
+        <input type="text" name="smb_path" placeholder="\\\\192.168.150.10\\Software\\RPI-Test\\1" />
+      </label>
+      <label>Domäne (optional)
+        <input type="text" name="domain" placeholder="MEINE-DOM" />
+        <small class="muted">Nur erforderlich, wenn die Anmeldung über eine Windows-Domäne erfolgt.</small>
+      </label>
+      <label>Benutzername (optional)
+        <input type="text" name="username" placeholder="z. B. administrator" />
+      </label>
+      <label>Passwort
+        <input type="password" name="password" />
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="auto_scan" value="1" checked /> Automatisch synchronisieren
+      </label>
+      <button type="submit">Quelle speichern</button>
+    </form>
+    <p class="muted">Der SMB-Pfad darf optional Unterordner enthalten (z.&nbsp;B. <code>\\\\server\\share\\bilder</code>). Wird kein Unterordner angegeben, wird die gesamte Freigabe synchronisiert.</p>
+  </article>
+</section>
+{% endblock %}

@@ -33,6 +33,13 @@ fi
 
 echo "$BRANCH" > "$BRANCH_FILE"
 
+if [[ -f "$APP_DIR/scripts/mount_smb.sh" ]]; then
+  chmod +x "$APP_DIR/scripts/mount_smb.sh"
+fi
+if [[ -f "$APP_DIR/scripts/update.sh" ]]; then
+  chmod +x "$APP_DIR/scripts/update.sh"
+fi
+
 if [[ -f "$APP_DIR/pyproject.toml" ]]; then
   "$VENV_DIR/bin/pip" install --upgrade pip
   "$VENV_DIR/bin/pip" install poetry

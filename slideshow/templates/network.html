@@ -1,0 +1,43 @@
+{% extends 'layout.html' %}
+{% block title %}Netzwerk – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Netzwerkkonfiguration</h2>
+    <p class="muted">Änderungen am Netzwerk erfordern Administratorrechte und führen ggf. zu einer kurzfristigen Unterbrechung der Verbindung.</p>
+    <form method="post" action="{{ url_for('update_network') }}" class="grid-form">
+      <label>Hostname
+        <input type="text" name="hostname" value="{{ config.network.hostname or '' }}" placeholder="raspberrypi" />
+      </label>
+      <label>Interface
+        <input type="text" name="interface" value="{{ config.network.interface }}" />
+      </label>
+      <label>Modus
+        <select name="mode">
+          <option value="dhcp" {% if config.network.mode == 'dhcp' %}selected{% endif %}>DHCP</option>
+          <option value="static" {% if config.network.mode == 'static' %}selected{% endif %}>Statisch</option>
+        </select>
+      </label>
+      <label>Statische Adresse (CIDR)
+        <input type="text" name="address" value="{{ config.network.static.address }}" />
+      </label>
+      <label>Gateway
+        <input type="text" name="router" value="{{ config.network.static.router }}" />
+      </label>
+      <label>DNS-Server (kommagetrennt)
+        <input type="text" name="dns" value="{{ config.network.static.dns | join(',') }}" />
+      </label>
+      <button type="submit">Einstellungen übernehmen</button>
+    </form>
+  </article>
+
+  <article>
+    <h2>Hinweise</h2>
+    <ul class="hint-list">
+      <li>Bei einer statischen Konfiguration sollten Adresse, Gateway und DNS-Server in demselben Subnetz liegen.</li>
+      <li>Nach Änderungen empfiehlt sich ein kurzer Neustart der Netzwerkverbindung oder des Systems.</li>
+      <li>Der aktuelle Hostname lautet <strong>{{ config.network.hostname or 'unbekannt' }}</strong>.</li>
+    </ul>
+  </article>
+</section>
+{% endblock %}

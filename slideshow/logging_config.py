@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import logging.config
 import logging.handlers
+import pathlib
+import warnings
 from typing import Dict
 
 from .config import DATA_DIR
@@ -48,7 +50,21 @@ def configure_logging() -> None:
     if _configured:
         return
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    global LOG_DIR
+
+    log_dir = LOG_DIR
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        fallback_dir = pathlib.Path.home() / ".slideshow" / "logs"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        warnings.warn(
+            f"Konnte Logverzeichnis {log_dir} nicht erzeugen, verwende {fallback_dir}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        log_dir = fallback_dir
+        LOG_DIR = log_dir
 
     handlers: Dict[str, dict] = {
         "console": {
@@ -60,7 +76,7 @@ def configure_logging() -> None:
     loggers: Dict[str, dict] = {}
 
     for key, definition in LOG_GROUPS.items():
-        log_path = LOG_DIR / definition["filename"]
+        log_path = log_dir / definition["filename"]
         handlers[f"{key}_file"] = {
             "class": "logging.handlers.RotatingFileHandler",
             "level": "INFO",

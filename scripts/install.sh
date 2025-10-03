@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# REPO_SLUG: SlideshowProject/Slideshow
+# REPO_SLUG: joni123467/Slideshow
 
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
@@ -13,21 +13,38 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO_SLUG=$(grep -m1 '^# REPO_SLUG:' "$0" | awk -F':' '{print $2}' | xargs)
-REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-SlideshowProject/Slideshow}}"
+REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-joni123467/Slideshow}}"
 REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils feh mpv curl ca-certificates
+apt-get install -y git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates
 
 determine_latest_branch() {
   local url="$1"
   local latest=""
   if git ls-remote --exit-code "$url" >/dev/null 2>&1; then
-    local versions
-    versions=$(git ls-remote --heads "$url" "version*" 2>/dev/null | awk '{print $2}' | sed 's#refs/heads/##' | sort -t'-' -k2,2V)
-    if [[ -n "$versions" ]]; then
-      latest=$(echo "$versions" | tail -n1)
+    local best_branch=""
+    local best_version=""
+    while IFS=$'\t' read -r _ ref; do
+      local branch="${ref#refs/heads/}"
+      if [[ "$branch" =~ ^version[[:space:]-]+([0-9]+(\.[0-9]+){1,3})$ ]]; then
+        local candidate="${BASH_REMATCH[1]}"
+        if [[ -z "$best_version" ]]; then
+          best_version="$candidate"
+          best_branch="$branch"
+        else
+          local newer
+          newer=$(printf '%s\n%s\n' "$best_version" "$candidate" | sort -V | tail -n1)
+          if [[ "$newer" == "$candidate" ]]; then
+            best_version="$candidate"
+            best_branch="$branch"
+          fi
+        fi
+      fi
+    done < <(git ls-remote --heads "$url")
+    if [[ -n "$best_branch" ]]; then
+      latest="$best_branch"
     else
       latest=$(git ls-remote --symref "$url" HEAD 2>/dev/null | awk '/^ref:/ {print $2}' | sed 's#refs/heads/##')
     fi
@@ -56,6 +73,17 @@ fi
 
 echo "$USER_NAME:$USER_PASSWORD" | chpasswd
 
+USER_UID="$(id -u "$USER_NAME")"
+SERVICE_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+if [[ -z "$SERVICE_HOME" ]]; then
+  echo "Konnte Home-Verzeichnis für $USER_NAME nicht bestimmen." >&2
+  exit 1
+fi
+
+DEFAULT_DESKTOP_USER="${SLIDESHOW_DESKTOP_USER:-${SUDO_USER:-}}"
+read -rp "Desktop-Benutzer für Anzeige [$DEFAULT_DESKTOP_USER]: " DESKTOP_USER_INPUT
+DESKTOP_USER="${DESKTOP_USER_INPUT:-$DEFAULT_DESKTOP_USER}"
+
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 
@@ -64,6 +92,24 @@ git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
 cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
+
+chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
+
+SUDOERS_FILE="/etc/sudoers.d/slideshow"
+SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
+REBOOT_BIN="$(command -v reboot || echo /sbin/reboot)"
+POWEROFF_BIN="$(command -v poweroff || echo /sbin/poweroff)"
+cat <<SUDOERS > "$SUDOERS_FILE"
+$USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/update.sh *
+$USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/mount_smb.sh *
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN is-active slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN stop slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $REBOOT_BIN
+$USER_NAME ALL=(root) NOPASSWD: $POWEROFF_BIN
+SUDOERS
+chmod 440 "$SUDOERS_FILE"
 
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip
@@ -74,18 +120,57 @@ elif [[ -f "$APP_DIR/requirements.txt" ]]; then
   "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 fi
 
+DESKTOP_HOME=""
+XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
+XAUTHORITY_WARNING=0
+if [[ -n "$DESKTOP_USER" ]]; then
+  DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
+  if [[ -z "$DESKTOP_HOME" ]]; then
+    echo "Hinweis: Desktop-Benutzer $DESKTOP_USER wurde nicht gefunden."
+    DESKTOP_USER=""
+  elif [[ -f "$DESKTOP_HOME/.Xauthority" ]]; then
+    install -m 600 -o "$USER_NAME" -g "$USER_NAME" "$DESKTOP_HOME/.Xauthority" "$XAUTHORITY_PATH"
+    echo "Übernehme Xauthority von $DESKTOP_USER nach $XAUTHORITY_PATH"
+  else
+    echo "WARNUNG: Keine .Xauthority bei $DESKTOP_USER gefunden."
+    XAUTHORITY_WARNING=1
+  fi
+fi
+
+if [[ ! -f "$XAUTHORITY_PATH" ]]; then
+  XAUTHORITY_WARNING=1
+fi
+
+RUNTIME_DIR="/run/user/$USER_UID"
+if ! install -d -m 0700 -o "$USER_NAME" -g "$USER_NAME" "$RUNTIME_DIR"; then
+  echo "WARNUNG: Konnte $RUNTIME_DIR nicht anlegen."
+fi
+
+TMPFILES_CONF="/etc/tmpfiles.d/slideshow.conf"
+cat <<TMPFILES > "$TMPFILES_CONF"
+d $RUNTIME_DIR 0700 $USER_NAME $USER_NAME -
+TMPFILES
+if ! systemd-tmpfiles --create "$TMPFILES_CONF"; then
+  echo "WARNUNG: systemd-tmpfiles konnte $RUNTIME_DIR nicht vorbereiten."
+fi
+
 cat <<SERVICE > "$SERVICE_FILE"
 [Unit]
 Description=Slideshow Service
-After=network.target
+After=network.target graphical.target
+Wants=graphical.target
 
 [Service]
 Type=simple
 User=$USER_NAME
 WorkingDirectory=$APP_DIR
 Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=$XAUTHORITY_PATH
+Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR
 ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -95,6 +180,10 @@ systemctl daemon-reload
 systemctl enable --now slideshow.service
 
 chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
+
+if [[ "$XAUTHORITY_WARNING" -eq 1 ]]; then
+  echo "WARNUNG: Keine gültige Xauthority-Datei gefunden. Stellen Sie sicher, dass $USER_NAME Zugriff auf die grafische Sitzung hat (DISPLAY=:0)."
+fi
 
 cat <<INFO
 Installation abgeschlossen.
