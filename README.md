@@ -64,7 +64,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    curl -sSL https://raw.githubusercontent.com/joni123467/Slideshow/refs/heads/main/scripts/install.sh | sudo bash
    ```
 
-2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Damit die Hardwarebeschleunigung funktioniert, wird der Account – sofern die Gruppen existieren – direkt `video`, `render` und `input` hinzugefügt. Benutzername und Passwort können während der Installation angepasst werden:
+2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Damit die Hardwarebeschleunigung funktioniert, wird der Account – sofern die Gruppen existieren – direkt `video`, `render` und `input` hinzugefügt. Während der Installation kann ein neuer oder ein bereits vorhandener Benutzer gewählt werden; bestehende Konten behalten ihr Passwort unverändert:
 
    ```bash
    sudo ./install.sh
@@ -80,6 +80,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
    - `--video-backend x11|drm` setzt das Backend explizit.
    - `--desktop-user <name>` hinterlegt direkt den Benutzer, dessen X11-Sitzung verwendet werden soll.
+   - `--service-user <name>` wählt den Dienstbenutzer vorab aus (bestehend oder neu, ohne Passwortänderung bei vorhandenen Konten).
 
 3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der Dienstbenutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
 
