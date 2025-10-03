@@ -5,7 +5,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME]
+Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME] [--service-user NAME]
 
 Optionen:
   --drm                Aktiviert die Framebuffer-/DRM-Ausgabe (kein Desktop erforderlich).
@@ -17,6 +17,7 @@ EOF
 
 VIDEO_BACKEND="${SLIDESHOW_VIDEO_BACKEND:-x11}"
 DESKTOP_USER_ARG=""
+SERVICE_USER_ARG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
     --desktop-user)
       DESKTOP_USER_ARG="${2:-}"
       shift 2 || { echo "--desktop-user benötigt einen Wert" >&2; exit 1; }
+      ;;
+    --service-user)
+      SERVICE_USER_ARG="${2:-}"
+      shift 2 || { echo "--service-user benötigt einen Wert" >&2; exit 1; }
       ;;
     --help)
       usage
