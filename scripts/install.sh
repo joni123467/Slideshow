@@ -112,8 +112,11 @@ fi
 
 echo "Verwende bestehenden Benutzer $USER_NAME für Dienst und Desktop-Integration."
 
+<<<<<<< HEAD
+=======
 DESKTOP_USER="$USER_NAME"
 
+>>>>>>> main
 GROUP_ADDED=()
 GROUP_MISSING=()
 for supplemental_group in video render input; do
@@ -144,7 +147,7 @@ cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
 
-chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" "$APP_DIR/scripts/prestart.sh" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
 
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
@@ -171,55 +174,35 @@ elif [[ -f "$APP_DIR/requirements.txt" ]]; then
   "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 fi
 
-DESKTOP_HOME=""
-XAUTHORITY_PATH=""
-XAUTHORITY_SOURCE=""
-XAUTHORITY_WARNING=0
-if [[ -n "$DESKTOP_USER" ]]; then
-  XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
-  DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
-  if [[ -z "$DESKTOP_HOME" ]]; then
-    echo "Hinweis: Desktop-Benutzer $DESKTOP_USER wurde nicht gefunden."
-    DESKTOP_USER=""
-    XAUTHORITY_PATH=""
-  elif [[ -f "$DESKTOP_HOME/.Xauthority" ]]; then
-    XAUTHORITY_SOURCE="$DESKTOP_HOME/.Xauthority"
-    echo "Xauthority von $DESKTOP_USER wird beim Dienststart synchronisiert."
-  else
-    echo "WARNUNG: Keine .Xauthority bei $DESKTOP_USER gefunden."
-    XAUTHORITY_WARNING=1
-  fi
-fi
-
-if [[ -z "$XAUTHORITY_SOURCE" && -n "$DESKTOP_USER" ]]; then
-  XAUTHORITY_WARNING=1
-fi
-
 RUNTIME_NAME="slideshow-$USER_UID"
 RUNTIME_DIR="/run/$RUNTIME_NAME"
 
-UNIT_AFTER="After=network-online.target"
+XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
+if [[ ! -f "$XAUTHORITY_PATH" ]]; then
+  echo "WARNUNG: Erwartete Xauthority-Datei $XAUTHORITY_PATH wurde nicht gefunden."
+fi
+
+UNIT_AFTER="After=display-manager.service graphical.target network-online.target"
+UNIT_REQUIRES="Requires=display-manager.service"
 UNIT_WANTS=("Wants=network-online.target")
-UNIT_INSTALL="WantedBy=multi-user.target"
+UNIT_INSTALL="WantedBy=graphical.target"
 SERVICE_ENV=(
   "Environment=PYTHONUNBUFFERED=1"
   "Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR"
+<<<<<<< HEAD
+  "Environment=DISPLAY=:0"
+  "Environment=XAUTHORITY=$XAUTHORITY_PATH"
+  "Environment=HOME=$SERVICE_HOME"
+=======
   "Environment=SLIDESHOW_SERVICE_USER=$USER_NAME"
+>>>>>>> main
 )
-if [[ -n "$XAUTHORITY_SOURCE" ]]; then
-  SERVICE_ENV+=("Environment=SLIDESHOW_XAUTHORITY_SOURCE=$XAUTHORITY_SOURCE")
-fi
-if [[ -n "$DESKTOP_USER" ]]; then
-  UNIT_AFTER+=" graphical.target"
-  UNIT_WANTS+=("Wants=graphical.target")
-  UNIT_INSTALL="WantedBy=graphical.target"
-  SERVICE_ENV+=("Environment=DISPLAY=:0" "Environment=XAUTHORITY=$XAUTHORITY_PATH")
-fi
 
 {
   echo "[Unit]"
   echo "Description=Slideshow Service"
   echo "$UNIT_AFTER"
+  echo "$UNIT_REQUIRES"
   for want in "${UNIT_WANTS[@]}"; do
     echo "$want"
   done
@@ -229,11 +212,11 @@ fi
   echo "User=$USER_NAME"
   echo "WorkingDirectory=$APP_DIR"
   echo "RuntimeDirectory=$RUNTIME_NAME"
-  echo "PermissionsStartOnly=yes"
+  echo "RuntimeDirectoryMode=0700"
   for env in "${SERVICE_ENV[@]}"; do
     echo "$env"
   done
-  echo "ExecStartPre=$APP_DIR/scripts/prestart.sh"
+  echo "ExecStartPre=/bin/sh -c 'DISPLAY=:0 XAUTHORITY=$XAUTHORITY_PATH xset q >/dev/null 2>&1 || true'"
   echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
   echo "ExecStartPost=/bin/sh -c 'echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet\" | systemd-cat -t slideshow'"
   echo "Restart=on-failure"
@@ -257,16 +240,15 @@ if [[ ${#GROUP_MISSING[@]} -gt 0 ]]; then
   GROUP_MISSING_NOTICE="Fehlende Systemgruppen bitte manuell prüfen: ${GROUP_MISSING[*]}"
 fi
 
-if [[ "$XAUTHORITY_WARNING" -eq 1 ]]; then
-  echo "WARNUNG: Keine gültige Xauthority-Datei gefunden. Stellen Sie sicher, dass $USER_NAME Zugriff auf die grafische Sitzung hat (DISPLAY=:0)."
-fi
-
 cat <<INFO
 Installation abgeschlossen.
 Repository: $REPO_URL
 Branch: $BRANCH
 Dienst-/Desktop-Benutzer: $USER_NAME
+<<<<<<< HEAD
+=======
 Desktop-Anzeige: $DESKTOP_USER
+>>>>>>> main
 $GROUP_SUMMARY
 ${GROUP_MISSING_NOTICE:-}
 INFO
