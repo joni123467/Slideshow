@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 import pathlib
 import threading
@@ -10,8 +11,35 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+LOGGER = logging.getLogger(__name__)
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+
+
+def _determine_data_dir() -> pathlib.Path:
+    """Bestimmt ein beschreibbares Datenverzeichnis."""
+
+    env_path = os.environ.get("SLIDESHOW_DATA_DIR")
+    candidates = []
+    if env_path:
+        candidates.append(pathlib.Path(env_path).expanduser())
+
+    default_path = pathlib.Path.home() / ".slideshow"
+    candidates.append(default_path)
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        else:
+            return candidate
+
+    # Sollte keiner der Kandidaten funktionieren, nutzen wir den Default-Pfad.
+    default_path.mkdir(parents=True, exist_ok=True)
+    return default_path
+
+
+DATA_DIR = _determine_data_dir()
 CONFIG_PATH = DATA_DIR / "config.yml"
 SECRETS_PATH = DATA_DIR / "secrets.json"
 DEFAULT_CONFIG = {
@@ -22,6 +50,7 @@ DEFAULT_CONFIG = {
             "path": str((DATA_DIR / "media").resolve()),
             "options": {},
             "auto_scan": True,
+            "subpath": None,
         }
     ],
     "playlist": [],
@@ -29,6 +58,10 @@ DEFAULT_CONFIG = {
         "image_duration": 10,
         "video_player": "mpv",
         "image_viewer": "mpv",
+        "video_backend": "auto",
+        "image_backend": "auto",
+        "video_player_args": [],
+        "image_viewer_args": [],
         "auto_start": True,
         "refresh_interval": 30,
         "info_screen_enabled": True,
@@ -69,6 +102,7 @@ class MediaSource:
     path: str
     options: Dict[str, Any]
     auto_scan: bool = False
+    subpath: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -92,6 +126,10 @@ class PlaybackConfig:
     image_duration: int
     video_player: str
     image_viewer: str
+    video_backend: str
+    image_backend: str
+    video_player_args: List[str]
+    image_viewer_args: List[str]
     auto_start: bool
     refresh_interval: int
     info_screen_enabled: bool
@@ -123,14 +161,14 @@ class AppConfig:
 
     @classmethod
     def load(cls) -> "AppConfig":
-        DATA_DIR.mkdir(exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         if not CONFIG_PATH.exists():
             CONFIG_PATH.write_text(yaml.safe_dump(DEFAULT_CONFIG, sort_keys=False), encoding="utf-8")
         with _lock:
             with CONFIG_PATH.open("r", encoding="utf-8") as fh:
                 raw = yaml.safe_load(fh) or {}
         config = _merge_dict(DEFAULT_CONFIG, raw)
-        return cls(
+        instance = cls(
             media_sources=[
                 MediaSource(
                     name=src.get("name"),
@@ -138,6 +176,7 @@ class AppConfig:
                     path=src.get("path"),
                     options=src.get("options", {}),
                     auto_scan=src.get("auto_scan", False),
+                    subpath=src.get("subpath"),
                 )
                 for src in config["media_sources"]
             ],
@@ -146,6 +185,8 @@ class AppConfig:
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
         )
+        instance.ensure_local_paths()
+        return instance
 
     def save(self) -> None:
         raw = {
@@ -167,6 +208,38 @@ class AppConfig:
             if src.name == name:
                 return src
         return None
+
+    # Helpers -------------------------------------------------------------
+    def ensure_local_paths(self) -> None:
+        for source in self.media_sources:
+            if source.type != "local":
+                continue
+            try:
+                pathlib.Path(source.path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                LOGGER.warning("Konnte lokales Medienverzeichnis %s nicht erstellen: %s", source.path, exc)
+
+        self.playback.video_player_args = _normalize_str_list(self.playback.video_player_args)
+        self.playback.image_viewer_args = _normalize_str_list(self.playback.image_viewer_args)
+        self.playback.video_backend = (self.playback.video_backend or "auto").lower()
+        self.playback.image_backend = (self.playback.image_backend or "auto").lower()
+
+
+def _normalize_str_list(value: Any) -> List[str]:
+    if isinstance(value, (list, tuple)):
+        result = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            return [text]
+    return []
 
 
 def _merge_dict(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,3 +268,12 @@ def load_secret(key: str, default: Any = None) -> Any:
         return default
     secrets = json.loads(SECRETS_PATH.read_text("utf-8"))
     return secrets.get(key, default)
+
+
+def delete_secret(key: str) -> None:
+    if not SECRETS_PATH.exists():
+        return
+    secrets = json.loads(SECRETS_PATH.read_text("utf-8"))
+    if key in secrets:
+        del secrets[key]
+        SECRETS_PATH.write_text(json.dumps(secrets), encoding="utf-8")

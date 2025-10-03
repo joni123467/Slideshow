@@ -4,14 +4,14 @@ from __future__ import annotations
 import functools
 import logging
 import subprocess
-from typing import Optional
+from typing import List, Optional
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig, PlaylistItem
+from .config import AppConfig
 from .logging_config import available_logs
 from .media import MediaManager
 from .network import NetworkManager
@@ -99,46 +99,72 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def dashboard():
         state = get_state()
-        sources = media_manager.list_sources()
-        auto_totals = dict(
-            sorted(
-                (
-                    (source.name, len(media_manager.scan_directory(source)))
-                    for source in sources
-                    if source.auto_scan
-                ),
-                key=lambda item: item[0],
-            )
-        )
-        branches = system_manager.list_branches()
-        current_branch = system_manager.current_branch()
+        playlist_preview = media_manager.build_playlist()
         service_status = system_manager.service_status()
         return render_template(
             "dashboard.html",
             state=state,
-            playlist=media_manager.list_playlist(),
+            playlist=playlist_preview,
+            config=cfg,
+            service_status=service_status,
+        )
+
+    @app.route("/media")
+    @pam_required
+    def media_settings():
+        sources = media_manager.list_sources()
+        auto_totals = {}
+        for source in sources:
+            if not source.auto_scan:
+                continue
+            try:
+                media_manager.mount_source(source)
+                auto_totals[source.name] = len(media_manager.scan_directory(source))
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.warning("Automatischer Scan für %s fehlgeschlagen: %s", source.name, exc)
+                flash(f"Konnte Quelle {source.name} nicht einlesen: {exc}", "danger")
+        auto_totals = dict(sorted(auto_totals.items(), key=lambda item: item[0]))
+        return render_template(
+            "media.html",
             sources=sources,
+            auto_totals=auto_totals,
+            config=cfg,
+        )
+
+    @app.route("/playback")
+    @pam_required
+    def playback_settings_page():
+        sources = media_manager.list_sources()
+        return render_template(
+            "playback.html",
+            config=cfg,
+            sources=sources,
+            state=get_state(),
+        )
+
+    @app.route("/network")
+    @pam_required
+    def network_settings():
+        return render_template(
+            "network.html",
+            config=cfg,
+        )
+
+    @app.route("/system")
+    @pam_required
+    def system_settings():
+        branches = system_manager.list_branches()
+        current_branch = system_manager.current_branch()
+        service_status = system_manager.service_status()
+        return render_template(
+            "system.html",
             config=cfg,
             branches=branches,
             current_branch=current_branch,
+            has_branch_info=bool(branches or current_branch),
+            fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
-            auto_totals=auto_totals,
         )
-
-    @app.route("/playlist", methods=["POST"])
-    @pam_required
-    def playlist_add():
-        source = request.form.get("source")
-        path = request.form.get("path")
-        duration = request.form.get("duration")
-        item_type = media_manager.detect_item_type(path or "")
-        if not source or not path:
-            flash("Quelle und Pfad müssen angegeben werden", "danger")
-            return redirect(url_for("dashboard"))
-        media_manager.add_to_playlist(PlaylistItem(source=source, path=path, type=item_type, duration=int(duration) if duration else None))
-        player.reload()
-        flash("Element hinzugefügt", "success")
-        return redirect(url_for("dashboard"))
 
     @app.route("/logs/<string:name>")
     @pam_required
@@ -165,17 +191,68 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/sources/smb", methods=["POST"])
     @pam_required
     def add_smb_source():
-        name = request.form.get("name")
-        server = request.form.get("server")
-        share = request.form.get("share")
-        username = request.form.get("username") or None
-        password = request.form.get("password") or None
-        if not all([name, server, share]):
-            flash("Name, Server und Freigabe sind erforderlich", "danger")
-            return redirect(url_for("dashboard"))
-        media_manager.add_smb_source(name=name, server=server, share=share, username=username, password=password)
+        name = (request.form.get("name") or "").strip()
+        smb_path = (request.form.get("smb_path") or "").strip()
+        server = (request.form.get("server") or "").strip() or None
+        share = (request.form.get("share") or "").strip() or None
+        subpath = (request.form.get("subpath") or "").strip() or None
+        domain = (request.form.get("domain") or "").strip() or None
+        username = (request.form.get("username") or "").strip() or None
+        password = (request.form.get("password") or "").strip() or None
+        auto_scan = request.form.get("auto_scan") in {"1", "true", "on"}
+
+        if not name:
+            flash("Name der Quelle ist erforderlich", "danger")
+            return redirect(url_for("media_settings"))
+
+        try:
+            media_manager.add_smb_source(
+                name=name,
+                server=server,
+                share=share,
+                username=username,
+                password=password,
+                domain=domain,
+                subpath=subpath,
+                smb_path=smb_path,
+                auto_scan=auto_scan,
+            )
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("media_settings"))
+
         flash("SMB-Quelle hinzugefügt", "success")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("media_settings"))
+
+    @app.route("/sources/<path:name>/auto-scan", methods=["POST"])
+    @pam_required
+    def toggle_auto_scan(name: str):
+        enabled = request.form.get("enabled") in {"1", "true", "on"}
+        try:
+            media_manager.set_auto_scan(name, enabled)
+            player.reload()
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        else:
+            status = "aktiviert" if enabled else "deaktiviert"
+            flash(f"Automatischer Scan für {name} {status}", "success")
+        return redirect(url_for("media_settings"))
+
+    @app.route("/sources/<path:name>/delete", methods=["POST"])
+    @pam_required
+    def delete_source(name: str):
+        confirm = request.form.get("confirm")
+        if confirm not in {"1", "true", "on", "yes"}:
+            flash("Löschung nicht bestätigt", "warning")
+            return redirect(url_for("media_settings"))
+        try:
+            media_manager.remove_source(name)
+            player.reload()
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        else:
+            flash(f"Quelle {name} entfernt", "info")
+        return redirect(url_for("media_settings"))
 
     @app.route("/network", methods=["POST"])
     @pam_required
@@ -193,7 +270,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         else:
             network_manager.configure_dhcp(interface)
         flash("Netzwerk aktualisiert", "success")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("network_settings"))
 
     @app.route("/player/<string:action>", methods=["POST"])
     @pam_required
@@ -213,7 +290,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except Exception as exc:  # pragma: no cover - defensive
             LOGGER.exception("Fehler bei Player-Aktion")
             flash(f"Aktion fehlgeschlagen: {exc}", "danger")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("playback_settings_page"))
 
     @app.route("/player/info-screen", methods=["POST"])
     @pam_required
@@ -221,12 +298,24 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         enabled = request.form.get("enabled") == "1"
         player.show_info_screen(enabled)
         flash("Infobildschirm aktiviert" if enabled else "Infobildschirm deaktiviert", "info")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("playback_settings_page"))
 
     @app.route("/playback/settings", methods=["POST"])
     @pam_required
     def update_playback_settings():
         playback = cfg.playback
+
+        def parse_args(field: str, current: List[str]) -> List[str]:
+            raw = request.form.get(field)
+            if raw is None:
+                return current
+            items: List[str] = []
+            for entry in raw.replace("\r", "").splitlines():
+                entry = entry.strip()
+                if entry:
+                    items.append(entry)
+            return items
+
         try:
             playback.image_duration = max(1, int(request.form.get("image_duration") or playback.image_duration))
         except ValueError:
@@ -258,6 +347,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         display_resolution = (request.form.get("display_resolution") or playback.display_resolution).strip()
         playback.display_resolution = display_resolution
 
+        video_backend = (request.form.get("video_backend") or playback.video_backend or "auto").lower()
+        if video_backend not in {"auto", "x11", "drm"}:
+            video_backend = "auto"
+        playback.video_backend = video_backend
+
+        image_backend = (request.form.get("image_backend") or playback.image_backend or video_backend).lower()
+        if image_backend not in {"auto", "x11", "drm"}:
+            image_backend = video_backend
+        playback.image_backend = image_backend
+
+        playback.video_player_args = parse_args("video_player_args", playback.video_player_args)
+        playback.image_viewer_args = parse_args("image_viewer_args", playback.image_viewer_args)
+
         splitscreen_enabled = request.form.get("splitscreen_enabled") in {"1", "true", "on"}
         playback.splitscreen_enabled = splitscreen_enabled
         left_source = request.form.get("splitscreen_left_source")
@@ -270,7 +372,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         cfg.save()
         player.reload()
         flash("Wiedergabe-Einstellungen gespeichert", "success")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("playback_settings_page"))
 
     @app.route("/system/update", methods=["POST"])
     @pam_required
@@ -284,7 +386,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             flash(f"Update fehlgeschlagen: {exc}", "danger")
         except ValueError as exc:
             flash(str(exc), "danger")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("system_settings"))
 
     @app.route("/system/service/<string:action>", methods=["POST"])
     @pam_required
@@ -295,7 +397,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except (subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
             LOGGER.exception("Serviceaktion fehlgeschlagen")
             flash(f"Serviceaktion fehlgeschlagen: {exc}", "danger")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("system_settings"))
 
     @app.route("/system/reboot", methods=["POST"])
     @pam_required
@@ -306,7 +408,18 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except (subprocess.CalledProcessError, RuntimeError) as exc:
             LOGGER.exception("Neustart fehlgeschlagen")
             flash(f"Neustart fehlgeschlagen: {exc}", "danger")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("system_settings"))
+
+    @app.route("/system/shutdown", methods=["POST"])
+    @pam_required
+    def system_shutdown():
+        try:
+            system_manager.shutdown()
+            flash("Shutdown ausgelöst", "warning")
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            LOGGER.exception("Shutdown fehlgeschlagen")
+            flash(f"Shutdown fehlgeschlagen: {exc}", "danger")
+        return redirect(url_for("system_settings"))
 
     # API ---------------------------------------------------------------
     @app.route("/api/state")
