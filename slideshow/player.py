@@ -18,6 +18,7 @@ from .info import InfoScreen
 from .media import MediaManager
 from .state import set_state
 from .system import resolve_hostname, resolve_ip_addresses
+from .mpv_controller import MpvController
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ class PlayerService:
             "secondary": None,
         }
         self._temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="slideshow-display-"))
+        self._controllers: Dict[str, MpvController] = {}
+        self._controller_lock = threading.Lock()
+        self._mpv_args = self._collect_mpv_args()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -55,6 +59,7 @@ class PlayerService:
         if self._thread:
             self._thread.join(timeout=5)
         self._thread = None
+        self._stop_all_controllers()
         self._cleanup_tempdir()
         set_state(
             None,
@@ -84,6 +89,7 @@ class PlayerService:
             if self.config.playback.splitscreen_enabled:
                 if manual_info:
                     self._stop_splitscreen_threads()
+                    self._stop_controller("secondary")
                     if self.config.playback.info_screen_enabled:
                         self._display_info_screen(manual=True)
                     else:
@@ -123,6 +129,8 @@ class PlayerService:
 
             # Einzelbildschirmmodus -------------------------------------
             self._stop_splitscreen_threads()
+            self._controller_for_side("primary", None)
+            self._stop_controller("secondary")
             playlist = self.manager.build_playlist()
             if manual_info or not playlist:
                 if self.config.playback.info_screen_enabled:
@@ -150,6 +158,7 @@ class PlayerService:
             self._reload.clear()
 
         self._stop_splitscreen_threads()
+        self._stop_all_controllers()
         self._cleanup_tempdir()
         LOGGER.info("Player thread stopped")
 
@@ -217,6 +226,8 @@ class PlayerService:
         )
         if not left_items and not right_items:
             self._stop_splitscreen_threads()
+            self._stop_controller("primary")
+            self._stop_controller("secondary")
             return False
 
         restart_needed = self._reload.is_set() or any(
@@ -226,6 +237,14 @@ class PlayerService:
             self._stop_splitscreen_threads()
 
         if not self._split_threads:
+            if left_items:
+                self._controller_for_side("primary", self._geometry_for_side("left"))
+            else:
+                self._stop_controller("primary")
+            if right_items:
+                self._controller_for_side("secondary", self._geometry_for_side("right"))
+            else:
+                self._stop_controller("secondary")
             if left_items:
                 worker = self._SplitWorker(
                     self,
@@ -270,6 +289,62 @@ class PlayerService:
         if self._split_threads:
             LOGGER.debug("Splitscreen-Threads gestoppt")
         self._split_threads.clear()
+        self._previous_images["primary"] = None
+        self._previous_images["secondary"] = None
+
+    def _uses_mpv(self) -> bool:
+        return (
+            self.config.playback.video_player == "mpv"
+            or self.config.playback.image_viewer == "mpv"
+        )
+
+    def _controller_for_side(
+        self, side: str, geometry: Optional[str]
+    ) -> Optional[MpvController]:
+        if not self._uses_mpv():
+            return None
+        to_stop: Optional[MpvController] = None
+        created = False
+        with self._controller_lock:
+            controller = self._controllers.get(side)
+            if controller and controller.geometry != geometry:
+                to_stop = controller
+                self._controllers.pop(side, None)
+                controller = None
+                if side in self._previous_images:
+                    self._previous_images[side] = None
+            if controller is None:
+                controller = MpvController(geometry=geometry, extra_args=self._mpv_args)
+                self._controllers[side] = controller
+                created = True
+        if to_stop:
+            to_stop.stop()
+        if created:
+            if not controller.start():
+                LOGGER.error("Konnte mpv-Controller für %s nicht starten", side)
+                with self._controller_lock:
+                    stored = self._controllers.get(side)
+                    if stored is controller:
+                        self._controllers.pop(side, None)
+                return None
+        else:
+            controller.ensure_running()
+        return controller
+
+    def _stop_controller(self, side: str) -> None:
+        with self._controller_lock:
+            controller = self._controllers.pop(side, None)
+        if controller:
+            controller.stop()
+        if side in self._previous_images:
+            self._previous_images[side] = None
+
+    def _stop_all_controllers(self) -> None:
+        with self._controller_lock:
+            controllers = list(self._controllers.values())
+            self._controllers.clear()
+        for controller in controllers:
+            controller.stop()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
 
@@ -329,17 +404,14 @@ class PlayerService:
             secondary_status="stopped" if clear_secondary else None,
         )
         if player == "mpv":
-            cmd = [
-                player,
-                "--no-terminal",
-                "--quiet",
-                "--loop-file=no",
-                "--keep-open=no",
-            ]
-            cmd.extend(self._mpv_geometry_args(geometry))
-            cmd.extend(self.config.playback.video_player_args)
-            cmd.append(str(path))
-            subprocess.run(cmd, check=False)
+            controller = self._controller_for_side(side, geometry)
+            if not controller:
+                LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
+            else:
+                if controller.load_file(path):
+                    finished = controller.wait_until_idle(self._should_interrupt)
+                    if not finished and self._should_interrupt():
+                        controller.stop_playback()
         elif player == "omxplayer":
             args = ["omxplayer", "--no-keys", str(path)]
             subprocess.run(args, check=False)
@@ -385,19 +457,18 @@ class PlayerService:
 
         viewer = self.config.playback.image_viewer
         if viewer == "mpv":
-            cmd = [
-                viewer,
-                "--no-terminal",
-                "--quiet",
-                "--loop-file=no",
-                "--keep-open=no",
-                f"--image-display-duration={duration}",
-                "--terminate-on-last-frame=yes",
-            ]
-            cmd.extend(self._mpv_geometry_args(geometry))
-            cmd.extend(self.config.playback.image_viewer_args)
-            cmd.append(str(processed_path))
-            subprocess.run(cmd, check=False)
+            controller = self._controller_for_side(side, geometry)
+            if not controller:
+                LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
+            else:
+                controller.set_property("image-display-duration", duration)
+                if controller.load_file(processed_path):
+                    end_time = time.time() + duration
+                    while time.time() < end_time:
+                        if self._should_interrupt():
+                            controller.stop_playback()
+                            break
+                        time.sleep(0.2)
         elif viewer == "feh":
             cmd = [
                 viewer,
@@ -482,21 +553,27 @@ class PlayerService:
             LOGGER.warning("ffmpeg konnte Übergang nicht erzeugen")
             return
 
-        viewer = self.config.playback.video_player if transition_type == "slide" else self.config.playback.image_viewer
-        if viewer != "mpv":
-            viewer = "mpv"
-        cmd = [
-            viewer,
-            "--no-terminal",
-            "--quiet",
-            "--loop-file=no",
-            "--force-window=yes",
-            "--keep-open=no",
-            "--terminate-on-last-frame=yes",
-        ]
-        cmd.extend(self._mpv_geometry_args(geometry))
-        cmd.append(str(output))
-        subprocess.run(cmd, check=False)
+        controller = None
+        if self._uses_mpv():
+            controller = self._controller_for_side(side, geometry)
+        if controller and controller.load_file(output):
+            finished = controller.wait_until_idle(self._should_interrupt)
+            if not finished and self._should_interrupt():
+                controller.stop_playback()
+        else:
+            viewer = self.config.playback.video_player if transition_type == "slide" else self.config.playback.image_viewer
+            cmd = [
+                "mpv" if viewer != "mpv" else viewer,
+                "--no-terminal",
+                "--quiet",
+                "--loop-file=no",
+                "--force-window=yes",
+                "--keep-open=no",
+            ]
+            cmd.extend(self._mpv_args)
+            cmd.extend(self._mpv_geometry_args(geometry))
+            cmd.append(str(output))
+            subprocess.run(cmd, check=False)
         self._safe_remove(output)
 
     # Hilfsfunktionen ----------------------------------------------------
@@ -583,6 +660,25 @@ class PlayerService:
         else:
             args.append("--fullscreen")
         return args
+
+    def _collect_mpv_args(self) -> List[str]:
+        unique_args: List[str] = []
+        seen = set()
+        for arg in itertools.chain(
+            self.config.playback.video_player_args,
+            self.config.playback.image_viewer_args,
+        ):
+            if arg not in seen:
+                seen.add(arg)
+                unique_args.append(arg)
+        return unique_args
+
+    def _should_interrupt(self) -> bool:
+        return (
+            self._stop.is_set()
+            or self._reload.is_set()
+            or self._info_manual.is_set()
+        )
 
     def _display_info_screen(self, manual: bool) -> None:
         hostname = resolve_hostname()
