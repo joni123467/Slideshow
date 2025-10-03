@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# REPO_SLUG: SlideshowProject/Slideshow
+# REPO_SLUG: joni123467/Slideshow
 
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
@@ -13,7 +13,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 REPO_SLUG=$(grep -m1 '^# REPO_SLUG:' "$0" | awk -F':' '{print $2}' | xargs)
-REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-SlideshowProject/Slideshow}}"
+REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-joni123467/Slideshow}}"
 REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
