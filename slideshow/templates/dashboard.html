@@ -43,7 +43,7 @@
             <td>{{ loop.index }}</td>
             <td>
               {% if item.type == 'image' %}
-              <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+              <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
               {% else %}
               <span class="muted">—</span>
               {% endif %}
