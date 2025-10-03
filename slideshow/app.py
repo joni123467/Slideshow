@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import pathlib
 import subprocess
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import (
     Flask,
@@ -27,7 +27,7 @@ from flask_login import LoginManager, current_user, login_required, login_user, 
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig, export_config_bundle, import_config_bundle
+from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
 from .logging_config import available_logs
 from .media import MediaManager
 from .network import NetworkManager
@@ -58,6 +58,17 @@ THEME_CHOICES: Tuple[Tuple[str, str], ...] = (
     ("light", "Hell"),
     ("mid", "Neutral"),
     ("dark", "Dunkel"),
+)
+
+DISPLAY_RESOLUTION_CHOICES: Tuple[Tuple[str, str], ...] = (
+    ("3840x2160", "4K UHD (3840×2160)"),
+    ("2560x1440", "QHD (2560×1440)"),
+    ("2560x1080", "Ultra-Wide HD (2560×1080)"),
+    ("1920x1200", "WUXGA (1920×1200)"),
+    ("1920x1080", "Full HD (1920×1080)"),
+    ("1600x900", "HD+ (1600×900)"),
+    ("1366x768", "WXGA (1366×768)"),
+    ("1280x720", "HD (1280×720)"),
 )
 
 
@@ -156,15 +167,75 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     def dashboard():
         state = get_state()
         playlist_preview = media_manager.build_playlist()
+        split_left: List[PlaylistItem] = []
+        split_right: List[PlaylistItem] = []
+        if cfg.playback.splitscreen_enabled:
+            split_left, split_right = media_manager.build_splitscreen_playlists(
+                cfg.playback.splitscreen_left_source,
+                cfg.playback.splitscreen_left_path,
+                cfg.playback.splitscreen_right_source,
+                cfg.playback.splitscreen_right_path,
+            )
         service_status = system_manager.service_status()
+        disabled_keys = media_manager.disabled_media_keys()
         return render_template(
             "dashboard.html",
             state=state,
             playlist=playlist_preview,
+            splitscreen_left=split_left,
+            splitscreen_right=split_right,
             config=cfg,
             service_status=service_status,
             service_active=service_active(service_status),
+            disabled_keys=disabled_keys,
         )
+
+    @app.route("/playlist/toggle", methods=["POST"])
+    @pam_required
+    def toggle_playlist_item():
+        source = (request.form.get("source") or "").strip()
+        path = (request.form.get("path") or "").strip()
+        enabled_flag = (request.form.get("enabled") or "").strip().lower()
+        redirect_target = request.form.get("next") or url_for("dashboard")
+        if not source or not path:
+            flash("Ungültiger Playlist-Eintrag", "danger")
+            return redirect(redirect_target)
+
+        desired_enabled = enabled_flag in {"1", "true", "on", "yes"}
+
+        def _normalize_entries(entries: Optional[List[Any]]) -> List[Dict[str, str]]:
+            normalized: List[Dict[str, str]] = []
+            if not entries:
+                return normalized
+            for entry in entries:
+                if isinstance(entry, dict):
+                    entry_source = str(entry.get("source") or "").strip()
+                    entry_path = str(entry.get("path") or "").strip()
+                else:
+                    entry_source = str(getattr(entry, "source", "") or "").strip()
+                    entry_path = str(getattr(entry, "path", "") or "").strip()
+                if entry_source and entry_path:
+                    normalized.append({"source": entry_source, "path": entry_path})
+            return normalized
+
+        previous = _normalize_entries(cfg.playback.disabled_media)
+        updated: List[Dict[str, str]] = []
+        found = False
+        for entry in previous:
+            if entry["source"] == source and entry["path"] == path:
+                found = True
+                if desired_enabled:
+                    continue
+            updated.append(entry)
+        if not desired_enabled and not found:
+            updated.append({"source": source, "path": path})
+
+        if updated != previous:
+            cfg.playback.disabled_media = updated
+            cfg.save()
+            player.reload()
+
+        return redirect(redirect_target)
 
     @app.route("/media/preview/<string:source>/<path:media_path>")
     @pam_required
@@ -287,10 +358,11 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             share_opt = source.options.get("share")
             subpath_value = request.form.get("subpath") if request.form else source.subpath
             if server_opt and share_opt:
-                smb_prefill = f"smb://{server_opt}/{share_opt}"
+                smb_prefill = "\\\\" + str(server_opt)
+                smb_prefill += "\\" + str(share_opt)
                 normalized_sub = (subpath_value or "").replace("\\", "/").strip("/")
                 if normalized_sub:
-                    smb_prefill = f"{smb_prefill.rstrip('/')}/{normalized_sub}"
+                    smb_prefill = smb_prefill.rstrip("\\/") + "\\" + normalized_sub.replace("/", "\\")
             else:
                 smb_prefill = ""
         return render_template("edit_source.html", source=source, smb_prefill=smb_prefill or "")
@@ -299,12 +371,17 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def playback_settings_page():
         sources = media_manager.list_sources()
+        detected_resolution = system_manager.detect_display_resolution()
+        resolution_values = [value for value, _ in DISPLAY_RESOLUTION_CHOICES]
         return render_template(
             "playback.html",
             config=cfg,
             sources=sources,
             state=get_state(),
             transition_options=TRANSITION_OPTIONS,
+            display_resolution_choices=DISPLAY_RESOLUTION_CHOICES,
+            detected_resolution=detected_resolution,
+            resolution_values=resolution_values,
         )
 
     @app.route("/network")
@@ -322,13 +399,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     def system_settings():
         branches = system_manager.list_branches()
         current_branch = system_manager.current_branch()
+        branch_choices: List[str] = []
+        if current_branch:
+            branch_choices.append(current_branch)
+        for branch in branches:
+            if branch not in branch_choices:
+                branch_choices.append(branch)
         service_status = system_manager.service_status()
         return render_template(
             "system.html",
             config=cfg,
-            branches=branches,
+            branch_choices=branch_choices,
             current_branch=current_branch,
-            has_branch_info=bool(branches or current_branch),
+            has_branch_info=bool(branch_choices),
             fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
             service_active=service_active(service_status),
@@ -599,28 +682,33 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             transition_duration = playback.transition_duration
         playback.transition_duration = max(0.2, min(10.0, transition_duration))
 
-        display_resolution = (request.form.get("display_resolution") or playback.display_resolution).strip()
-        playback.display_resolution = display_resolution
+        resolution_choice = (request.form.get("display_resolution_choice") or "").strip()
+        custom_resolution = (request.form.get("display_resolution_custom") or "").strip()
+        if resolution_choice == "custom":
+            display_resolution = custom_resolution or playback.display_resolution
+        elif resolution_choice:
+            display_resolution = resolution_choice
+        else:
+            display_resolution = playback.display_resolution
+        playback.display_resolution = (display_resolution or playback.display_resolution).strip()
 
         playback.video_player_args = parse_args("video_player_args", playback.video_player_args)
         playback.image_viewer_args = parse_args("image_viewer_args", playback.image_viewer_args)
 
         splitscreen_enabled = request.form.get("splitscreen_enabled") in {"1", "true", "on"}
         playback.splitscreen_enabled = splitscreen_enabled
-        left_source = request.form.get("splitscreen_left_source")
-        right_source = request.form.get("splitscreen_right_source")
-        def _normalize_split_path(raw: Optional[str]) -> str:
-            if not raw:
-                return ""
-            return str(raw).strip().replace("\\", "/")
+        left_source = request.form.get("splitscreen_left_source") or None
+        right_source = request.form.get("splitscreen_right_source") or None
 
-        playback.splitscreen_left_source = left_source or None
-        playback.splitscreen_left_path = _normalize_split_path(
-            request.form.get("splitscreen_left_path")
+        playback.splitscreen_left_source = left_source
+        playback.splitscreen_left_path = media_manager.normalize_split_path(
+            left_source,
+            request.form.get("splitscreen_left_path"),
         )
-        playback.splitscreen_right_source = right_source or None
-        playback.splitscreen_right_path = _normalize_split_path(
-            request.form.get("splitscreen_right_path")
+        playback.splitscreen_right_source = right_source
+        playback.splitscreen_right_path = media_manager.normalize_split_path(
+            right_source,
+            request.form.get("splitscreen_right_path"),
         )
         try:
             ratio_value = int(request.form.get("splitscreen_ratio") or playback.splitscreen_ratio)
@@ -636,11 +724,16 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/system/update", methods=["POST"])
     @pam_required
     def system_update():
-        branch = request.form.get("branch") or system_manager.current_branch() or "main"
+        branch = (request.form.get("branch") or "").strip()
+        if not branch:
+            branch = system_manager.current_branch() or "main"
         try:
             system_manager.update(branch)
-            flash(f"Update auf Branch {branch} gestartet", "success")
-        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            flash(
+                f"Update auf Branch {branch} gestartet. Details siehe update.log im System-Tab.",
+                "success",
+            )
+        except (subprocess.CalledProcessError, RuntimeError, OSError) as exc:
             LOGGER.exception("Update fehlgeschlagen")
             flash(f"Update fehlgeschlagen: {exc}", "danger")
         except ValueError as exc:

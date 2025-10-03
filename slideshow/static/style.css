@@ -454,6 +454,34 @@ form {
   margin: 0 0 0.5rem 0;
 }
 
+.playlist-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.playlist-toggle input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+table tr.playlist-disabled {
+  opacity: 0.55;
+}
+
+table tr.playlist-disabled td {
+  color: var(--muted);
+}
+
+.playlist-preview__split h3 {
+  margin-top: 0;
+}
+
+.playlist-preview__split .table-wrapper {
+  margin-top: 0.5rem;
+}
+
 .split-ratio {
   display: flex;
   flex-direction: column;
@@ -479,6 +507,18 @@ form {
 
 .checkbox input[type="checkbox"] {
   width: auto;
+}
+
+.resolution-picker {
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (min-width: 600px) {
+  .resolution-picker {
+    grid-template-columns: minmax(200px, 1fr) minmax(160px, 0.8fr);
+    align-items: center;
+  }
 }
 
 .muted {
