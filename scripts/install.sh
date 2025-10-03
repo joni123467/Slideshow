@@ -5,37 +5,21 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME] [--service-user NAME]
+Verwendung: install.sh [--desktop-user NAME]
 
 Optionen:
-  --drm                Aktiviert die Framebuffer-/DRM-Ausgabe (kein Desktop erforderlich).
-  --video-backend NAME Setzt das Backend explizit auf "x11" oder "drm".
   --desktop-user NAME  Legt das Benutzerkonto fest, unter dem Dienst und Desktop laufen.
   --help               Zeigt diese Hilfe an.
 EOF
 }
 
-VIDEO_BACKEND="${SLIDESHOW_VIDEO_BACKEND:-x11}"
 DESKTOP_USER_ARG=""
-SERVICE_USER_ARG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --drm)
-      VIDEO_BACKEND="drm"
-      shift
-      ;;
-    --video-backend)
-      VIDEO_BACKEND="${2:-}"
-      shift 2 || { echo "--video-backend benötigt einen Wert" >&2; exit 1; }
-      ;;
     --desktop-user)
       DESKTOP_USER_ARG="${2:-}"
       shift 2 || { echo "--desktop-user benötigt einen Wert" >&2; exit 1; }
-      ;;
-    --service-user)
-      SERVICE_USER_ARG="${2:-}"
-      shift 2 || { echo "--service-user benötigt einen Wert" >&2; exit 1; }
       ;;
     --help)
       usage
@@ -49,12 +33,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-VIDEO_BACKEND="${VIDEO_BACKEND,,}"
-if [[ "$VIDEO_BACKEND" != "drm" && "$VIDEO_BACKEND" != "x11" ]]; then
-  echo "Unbekanntes Backend '$VIDEO_BACKEND', verwende x11." >&2
-  VIDEO_BACKEND="x11"
-fi
-
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
 SERVICE_FILE="/etc/systemd/system/slideshow.service"
@@ -64,7 +42,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-echo "Installationsmodus: Backend=$VIDEO_BACKEND"
+echo "Installationsmodus: Desktop (X11)"
 
 REPO_SLUG=$(grep -m1 '^# REPO_SLUG:' "$0" | awk -F':' '{print $2}' | xargs)
 REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-joni123467/Slideshow}}"
@@ -72,14 +50,8 @@ REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-COMMON_PACKAGES=(git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates)
-EXTRA_PACKAGES=()
-if [[ "$VIDEO_BACKEND" == "x11" ]]; then
-  EXTRA_PACKAGES+=(x11-xserver-utils)
-else
-  EXTRA_PACKAGES+=(mesa-utils libdrm2 libgbm1)
-fi
-apt-get install -y "${COMMON_PACKAGES[@]}" "${EXTRA_PACKAGES[@]}"
+COMMON_PACKAGES=(git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates x11-xserver-utils)
+apt-get install -y "${COMMON_PACKAGES[@]}"
 
 determine_latest_branch() {
   local url="$1"
@@ -140,13 +112,7 @@ fi
 
 echo "Verwende bestehenden Benutzer $USER_NAME für Dienst und Desktop-Integration."
 
-DESKTOP_USER=""
-if [[ "$VIDEO_BACKEND" == "x11" ]]; then
-  DESKTOP_USER="$USER_NAME"
-fi
-if [[ "$VIDEO_BACKEND" == "drm" ]]; then
-  echo "DRM-Modus: Desktop-Integration optional, Dienst läuft trotzdem als $USER_NAME."
-fi
+DESKTOP_USER="$USER_NAME"
 
 GROUP_ADDED=()
 GROUP_MISSING=()
@@ -239,8 +205,6 @@ SERVICE_ENV=(
   "Environment=PYTHONUNBUFFERED=1"
   "Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR"
   "Environment=SLIDESHOW_SERVICE_USER=$USER_NAME"
-  "Environment=SLIDESHOW_VIDEO_BACKEND=$VIDEO_BACKEND"
-  "Environment=SLIDESHOW_IMAGE_BACKEND=$VIDEO_BACKEND"
 )
 if [[ -n "$XAUTHORITY_SOURCE" ]]; then
   SERVICE_ENV+=("Environment=SLIDESHOW_XAUTHORITY_SOURCE=$XAUTHORITY_SOURCE")
@@ -271,7 +235,7 @@ fi
   done
   echo "ExecStartPre=$APP_DIR/scripts/prestart.sh"
   echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
-  echo "ExecStartPost=/bin/sh -c 'if [ -n \"\$DISPLAY\" ]; then echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet (Backend: \$SLIDESHOW_VIDEO_BACKEND)\" | systemd-cat -t slideshow; else echo \"Slideshow im Headless-Modus gestartet\" | systemd-cat -t slideshow; fi'"
+  echo "ExecStartPost=/bin/sh -c 'echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet\" | systemd-cat -t slideshow'"
   echo "Restart=on-failure"
   echo "RestartSec=5"
   echo ""
@@ -302,8 +266,7 @@ Installation abgeschlossen.
 Repository: $REPO_URL
 Branch: $BRANCH
 Dienst-/Desktop-Benutzer: $USER_NAME
-Video-Backend: $VIDEO_BACKEND
-Desktop-Anzeige: ${DESKTOP_USER:-keine}
+Desktop-Anzeige: $DESKTOP_USER
 $GROUP_SUMMARY
 ${GROUP_MISSING_NOTICE:-}
 INFO
