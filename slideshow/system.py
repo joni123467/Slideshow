@@ -5,6 +5,7 @@ import datetime
 import logging
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import socket
@@ -152,6 +153,22 @@ class SystemManager:
             raise RuntimeError("Update konnte nicht gestartet werden")
         return process
 
+    def detect_display_resolution(self) -> Optional[str]:
+        detectors = (
+            self._detect_resolution_from_xrandr,
+            self._detect_resolution_from_fbset,
+            self._detect_resolution_from_sysfs,
+        )
+        for detector in detectors:
+            try:
+                value = detector()
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.debug("%s fehlgeschlagen: %s", detector.__name__, exc)
+                continue
+            if value:
+                return value
+        return None
+
     # Service-Steuerung -----------------------------------------------
     def service_status(self, service: str = "slideshow.service") -> str:
         cmd = ["systemctl", "is-active", service]
@@ -195,6 +212,70 @@ class SystemManager:
         return "".join(content[-lines:])
 
     # Helpers ---------------------------------------------------------
+    def _detect_resolution_from_xrandr(self) -> Optional[str]:
+        try:
+            output = subprocess.check_output(
+                ["xrandr", "--current"], text=True, stderr=subprocess.STDOUT
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+            LOGGER.debug("xrandr-Erkennung fehlgeschlagen: %s", exc)
+            return None
+        pattern = re.compile(r"(\d{3,5})x(\d{3,5})")
+        for line in output.splitlines():
+            if "*" not in line:
+                continue
+            match = pattern.search(line)
+            if match:
+                return f"{match.group(1)}x{match.group(2)}"
+        for line in output.splitlines():
+            if "connected" not in line:
+                continue
+            match = pattern.search(line)
+            if match:
+                return f"{match.group(1)}x{match.group(2)}"
+        return None
+
+    def _detect_resolution_from_fbset(self) -> Optional[str]:
+        try:
+            output = subprocess.check_output(
+                ["fbset", "-s"], text=True, stderr=subprocess.STDOUT
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+            LOGGER.debug("fbset-Erkennung fehlgeschlagen: %s", exc)
+            return None
+        match = re.search(r"geometry\s+(\d{3,5})\s+(\d{3,5})", output)
+        if match:
+            return f"{match.group(1)}x{match.group(2)}"
+        return None
+
+    def _detect_resolution_from_sysfs(self) -> Optional[str]:
+        path = pathlib.Path("/sys/class/graphics/fb0/virtual_size")
+        if not path.exists():
+            return None
+        try:
+            raw = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            LOGGER.debug("Konnte Auflösung aus %s nicht lesen: %s", path, exc)
+            return None
+        if not raw:
+            return None
+        if "," in raw:
+            width, height = raw.split(",", 1)
+        else:
+            parts = raw.split()
+            if len(parts) >= 2:
+                width, height = parts[:2]
+            else:
+                return None
+        try:
+            width_val = int(width)
+            height_val = int(height)
+        except ValueError:
+            return None
+        if width_val <= 0 or height_val <= 0:
+            return None
+        return f"{width_val}x{height_val}"
+
     def _run(
         self,
         command: List[str],

@@ -8,14 +8,9 @@
     <form method="post" action="{{ url_for('system_update') }}" class="grid-form">
       <label>Branch auswählen
         <select name="branch">
-          {% set displayed = false %}
-          {% for branch in branches %}
-            {% set displayed = true %}
-            <option value="{{ branch }}" {% if current_branch and branch == current_branch %}selected{% endif %}>{{ branch }}</option>
+          {% for branch in branch_choices %}
+          <option value="{{ branch }}" {% if current_branch and branch == current_branch %}selected{% endif %}>{{ branch }}</option>
           {% endfor %}
-          {% if not displayed and current_branch %}
-            <option value="{{ current_branch }}" selected>{{ current_branch }}</option>
-          {% endif %}
         </select>
       </label>
       <button type="submit">Update starten</button>

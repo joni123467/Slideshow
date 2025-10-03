@@ -48,7 +48,7 @@
   <article>
     <h2>Playlist-Vorschau</h2>
     {% if config.playback.splitscreen_enabled %}
-    <p class="muted">Die Splitscreen-Wiedergabe nutzt getrennte Listen. Die linke bzw. rechte Seite berücksichtigt jeweils den gewählten Unterordner.</p>
+    <p class="muted">Die Splitscreen-Wiedergabe nutzt getrennte Listen. Die linke bzw. rechte Seite berücksichtigt jeweils den gewählten Unterordner. Über die Checkboxen lassen sich einzelne Medien temporär aus- oder einschalten.</p>
     <div class="split-grid playlist-preview__split">
       <div>
         <h3>Linke Seite</h3>
@@ -56,6 +56,7 @@
           <table>
             <thead>
               <tr>
+                <th>Anzeigen</th>
                 <th>#</th>
                 <th>Vorschau</th>
                 <th>Datei</th>
@@ -65,7 +66,18 @@
             </thead>
             <tbody>
               {% for item in splitscreen_left %}
-              <tr>
+              {% set key = item.source ~ '|' ~ item.path %}
+              {% set is_disabled = key in disabled_keys %}
+              <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+                <td>
+                  <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                    <input type="hidden" name="source" value="{{ item.source }}" />
+                    <input type="hidden" name="path" value="{{ item.path }}" />
+                    <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                    <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                    <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                  </form>
+                </td>
                 <td>{{ loop.index }}</td>
                 <td>
                   {% if item.type == 'image' %}
@@ -80,7 +92,7 @@
               </tr>
               {% else %}
               <tr>
-                <td colspan="5">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+                <td colspan="6">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -93,6 +105,7 @@
           <table>
             <thead>
               <tr>
+                <th>Anzeigen</th>
                 <th>#</th>
                 <th>Vorschau</th>
                 <th>Datei</th>
@@ -102,7 +115,18 @@
             </thead>
             <tbody>
               {% for item in splitscreen_right %}
-              <tr>
+              {% set key = item.source ~ '|' ~ item.path %}
+              {% set is_disabled = key in disabled_keys %}
+              <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+                <td>
+                  <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                    <input type="hidden" name="source" value="{{ item.source }}" />
+                    <input type="hidden" name="path" value="{{ item.path }}" />
+                    <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                    <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                    <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                  </form>
+                </td>
                 <td>{{ loop.index }}</td>
                 <td>
                   {% if item.type == 'image' %}
@@ -117,7 +141,7 @@
               </tr>
               {% else %}
               <tr>
-                <td colspan="5">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+                <td colspan="6">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -126,11 +150,12 @@
       </div>
     </div>
     {% else %}
-    <p class="muted">Die Wiedergabe wird automatisch aus allen aktiv überwachten Quellen aufgebaut. Neu hinzugefügte Dateien werden nach kurzer Zeit ohne manuelle Eingriffe angezeigt.</p>
+    <p class="muted">Die Wiedergabe wird automatisch aus allen aktiv überwachten Quellen aufgebaut. Neu hinzugefügte Dateien werden nach kurzer Zeit ohne manuelle Eingriffe angezeigt. Über die Checkboxen lassen sich einzelne Medien temporär aus- oder einschalten.</p>
     <div class="table-wrapper">
       <table>
         <thead>
           <tr>
+            <th>Anzeigen</th>
             <th>#</th>
             <th>Vorschau</th>
             <th>Datei</th>
@@ -140,7 +165,18 @@
         </thead>
         <tbody>
           {% for item in playlist %}
-          <tr>
+          {% set key = item.source ~ '|' ~ item.path %}
+          {% set is_disabled = key in disabled_keys %}
+          <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+            <td>
+              <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                <input type="hidden" name="source" value="{{ item.source }}" />
+                <input type="hidden" name="path" value="{{ item.path }}" />
+                <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+              </form>
+            </td>
             <td>{{ loop.index }}</td>
             <td>
               {% if item.type == 'image' %}
@@ -155,7 +191,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
+            <td colspan="6">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
           </tr>
           {% endfor %}
         </tbody>
