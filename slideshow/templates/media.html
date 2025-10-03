@@ -12,7 +12,6 @@
             <th>Name</th>
             <th>Typ</th>
             <th>Mountpunkt</th>
-            <th>Unterordner</th>
             <th>Automatisch</th>
             <th>Dateien</th>
             <th>Aktionen</th>
@@ -24,7 +23,6 @@
             <td>{{ source.name }}</td>
             <td>{{ source.type }}</td>
             <td><code>{{ source.path }}</code></td>
-            <td>{% if source.subpath %}<code>{{ source.subpath }}</code>{% else %}–{% endif %}</td>
             <td>{% if source.auto_scan %}Ja{% else %}Nein{% endif %}</td>
             <td>
               {% if auto_totals.get(source.name) is not none %}
@@ -55,7 +53,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="7">Keine Quellen konfiguriert.</td>
+            <td colspan="6">Keine Quellen konfiguriert.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -87,7 +85,7 @@
       </label>
       <button type="submit">Quelle speichern</button>
     </form>
-    <p class="muted">Der SMB-Pfad darf optional Unterordner enthalten (z.&nbsp;B. <code>\\\\server\\share\\bilder</code>). Wird kein Unterordner angegeben, wird die gesamte Freigabe synchronisiert.</p>
+    <p class="muted">Die Pfadangabe darf optional Unterordner enthalten (z.&nbsp;B. <code>\\\\server\\share\\bilder</code>); sie werden automatisch erkannt.</p>
   </article>
 </section>
 {% endblock %}

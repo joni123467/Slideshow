@@ -44,7 +44,8 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
 ## Voraussetzungen
 
-- Raspberry Pi OS (Bookworm oder Bullseye) mit Desktop-Komponenten.
+- Raspberry Pi OS (Bookworm oder Bullseye) – wahlweise mit Desktop (X11) oder als Lite-Variante. Für headless-Geräte stellt der
+  Installer über `--drm` automatisch auf den DRM/Framebuffer-Modus um.
 - Internetzugang, damit das Installationsskript Repository und Pakete aus dem Netz beziehen kann.
 - Optional: SMB-Freigaben, falls Netzlaufwerke eingebunden werden sollen.
 
@@ -68,6 +69,17 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    ```bash
    sudo ./install.sh
    ```
+
+   Für Installationen ohne Desktop (Raspberry Pi OS Lite) empfiehlt sich der DRM-Modus:
+
+   ```bash
+   sudo ./install.sh --drm
+   ```
+
+   Weitere Optionen:
+
+   - `--video-backend x11|drm` setzt das Backend explizit.
+   - `--desktop-user <name>` hinterlegt direkt den Benutzer, dessen X11-Sitzung verwendet werden soll.
 
 3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der Dienstbenutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
 
@@ -124,7 +136,13 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 - Der systemd-Dienst benötigt Zugriff auf die laufende Desktop-Sitzung (`DISPLAY=:0`). Während der Installation kann optional ein vorhandener Desktop-Benutzer angegeben werden; dessen `.Xauthority`-Datei wird in das Dienstkonto kopiert.
 - Sollte keine gültige `.Xauthority` gefunden werden, weist das Installationsskript darauf hin. In diesem Fall muss die Datei manuell bereitgestellt oder der Dienstbenutzer so gewählt werden, dass er bereits Teil der grafischen Sitzung ist.
-- Das Skript legt außerdem einen Eintrag unter `/etc/tmpfiles.d/slideshow.conf` an, damit das Laufzeitverzeichnis `/run/user/<UID>` bei jedem Start mit den korrekten Berechtigungen erzeugt wird.
+- Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
+
+### Headless- und DRM-Betrieb
+
+- Über `install.sh --drm` oder die Umgebungsvariable `SLIDESHOW_VIDEO_BACKEND=drm` richtet der Dienst automatisch den DRM-/Framebuffer-Modus ein. Ein Desktop-Benutzer ist dann nicht erforderlich; die Wiedergabe erfolgt direkt über `mpv --gpu-context=drm`.
+- Die Wiedergabeeinstellungen im Webinterface enthalten Auswahlfelder für Video- und Bild-Backend (`auto`, `x11`, `drm`) sowie zusätzliche Argumentlisten. Im Automatikmodus erkennt die Anwendung anhand der gesetzten Umgebungsvariablen bzw. eines vorhandenen `DISPLAY`, welches Backend verwendet werden soll.
+- Für Desktop-Systeme wartet der systemd-Dienst beim Start auf eine erreichbare X11-Sitzung (`xset q`). Dadurch werden Timing-Probleme beim Booten vermieden, wenn der Display-Manager länger benötigt.
 
 ### Updates ohne Git-Checkout
 

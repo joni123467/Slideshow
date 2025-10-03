@@ -59,6 +59,28 @@
       <label>Anzeigeauflösung
         <input type="text" name="display_resolution" value="{{ config.playback.display_resolution }}" />
       </label>
+      <label>Video-Ausgabemodus
+        <select name="video_backend">
+          <option value="auto" {% if config.playback.video_backend == 'auto' %}selected{% endif %}>Automatisch</option>
+          <option value="x11" {% if config.playback.video_backend == 'x11' %}selected{% endif %}>X11 / Desktop</option>
+          <option value="drm" {% if config.playback.video_backend == 'drm' %}selected{% endif %}>DRM / Framebuffer</option>
+        </select>
+      </label>
+      <label>Zusätzliche Video-Argumente
+        <textarea name="video_player_args" rows="3" placeholder="z. B. --vo=gpu">{{ config.playback.video_player_args | default([], true) | join('\n') }}</textarea>
+        <small class="muted">Ein Argument pro Zeile; leer lassen, um die Standardwerte zu verwenden.</small>
+      </label>
+      <label>Bild-Ausgabemodus
+        <select name="image_backend">
+          <option value="auto" {% if config.playback.image_backend == 'auto' %}selected{% endif %}>Automatisch</option>
+          <option value="x11" {% if config.playback.image_backend == 'x11' %}selected{% endif %}>X11 / Desktop</option>
+          <option value="drm" {% if config.playback.image_backend == 'drm' %}selected{% endif %}>DRM / Framebuffer</option>
+        </select>
+      </label>
+      <label>Zusätzliche Bild-Argumente
+        <textarea name="image_viewer_args" rows="3" placeholder="z. B. --vo=gpu">{{ config.playback.image_viewer_args | default([], true) | join('\n') }}</textarea>
+        <small class="muted">Ein Argument pro Zeile. Für DRM werden Geometrie-Optionen ignoriert.</small>
+      </label>
       <fieldset class="splitscreen">
         <legend>Splitscreen</legend>
         <label class="checkbox">

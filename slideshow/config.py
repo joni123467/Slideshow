@@ -58,6 +58,10 @@ DEFAULT_CONFIG = {
         "image_duration": 10,
         "video_player": "mpv",
         "image_viewer": "mpv",
+        "video_backend": "auto",
+        "image_backend": "auto",
+        "video_player_args": [],
+        "image_viewer_args": [],
         "auto_start": True,
         "refresh_interval": 30,
         "info_screen_enabled": True,
@@ -122,6 +126,10 @@ class PlaybackConfig:
     image_duration: int
     video_player: str
     image_viewer: str
+    video_backend: str
+    image_backend: str
+    video_player_args: List[str]
+    image_viewer_args: List[str]
     auto_start: bool
     refresh_interval: int
     info_screen_enabled: bool
@@ -210,6 +218,28 @@ class AppConfig:
                 pathlib.Path(source.path).mkdir(parents=True, exist_ok=True)
             except OSError as exc:
                 LOGGER.warning("Konnte lokales Medienverzeichnis %s nicht erstellen: %s", source.path, exc)
+
+        self.playback.video_player_args = _normalize_str_list(self.playback.video_player_args)
+        self.playback.image_viewer_args = _normalize_str_list(self.playback.image_viewer_args)
+        self.playback.video_backend = (self.playback.video_backend or "auto").lower()
+        self.playback.image_backend = (self.playback.image_backend or "auto").lower()
+
+
+def _normalize_str_list(value: Any) -> List[str]:
+    if isinstance(value, (list, tuple)):
+        result = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            return [text]
+    return []
 
 
 def _merge_dict(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
