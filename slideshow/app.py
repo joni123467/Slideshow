@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import logging
 import subprocess
-from typing import Optional
+from typing import List, Optional
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
@@ -304,6 +304,18 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def update_playback_settings():
         playback = cfg.playback
+
+        def parse_args(field: str, current: List[str]) -> List[str]:
+            raw = request.form.get(field)
+            if raw is None:
+                return current
+            items: List[str] = []
+            for entry in raw.replace("\r", "").splitlines():
+                entry = entry.strip()
+                if entry:
+                    items.append(entry)
+            return items
+
         try:
             playback.image_duration = max(1, int(request.form.get("image_duration") or playback.image_duration))
         except ValueError:
@@ -334,6 +346,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
 
         display_resolution = (request.form.get("display_resolution") or playback.display_resolution).strip()
         playback.display_resolution = display_resolution
+
+        video_backend = (request.form.get("video_backend") or playback.video_backend or "auto").lower()
+        if video_backend not in {"auto", "x11", "drm"}:
+            video_backend = "auto"
+        playback.video_backend = video_backend
+
+        image_backend = (request.form.get("image_backend") or playback.image_backend or video_backend).lower()
+        if image_backend not in {"auto", "x11", "drm"}:
+            image_backend = video_backend
+        playback.image_backend = image_backend
+
+        playback.video_player_args = parse_args("video_player_args", playback.video_player_args)
+        playback.image_viewer_args = parse_args("image_viewer_args", playback.image_viewer_args)
 
         splitscreen_enabled = request.form.get("splitscreen_enabled") in {"1", "true", "on"}
         playback.splitscreen_enabled = splitscreen_enabled
