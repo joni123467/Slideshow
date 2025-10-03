@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import io
 from dataclasses import asdict
 from typing import List, Optional
 
