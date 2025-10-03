@@ -7,6 +7,7 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 - **Automatisierte Wiedergabe** von Bildern und Videos über `mpv` (optional `feh` bzw. `omxplayer`), inklusive Infobildschirm bei Leerlauf.
 - **Flexible Bilddarstellung**: Bilddauer, Skalierung (einpassen, strecken, Originalgröße), Rotation und Übergänge (Fade oder Slide) werden im Webinterface eingestellt.
 - **Mehrere Medienquellen**: lokale Ordner oder SMB/CIFS-Freigaben, die automatisch eingehängt und in regelmäßigen Abständen gescannt werden.
+- **Komfortable SMB-Einrichtung**: Freigaben lassen sich direkt per UNC-Pfad (z. B. `\\192.168.150.10\Software\RPI-Test\1`) inklusive optionaler Domänen-Anmeldung hinzufügen.
 - **Splitscreen-Modus**: Optional lassen sich zwei Quellen parallel darstellen – z. B. Videos links und Bilder rechts – inklusive unabhängiger Wiedergabeschleifen.
 - **Automatischer Medienabgleich**: Neue Dateien in überwachten Ordnern werden ohne Neustart erkannt und automatisch in der Wiedergabe berücksichtigt.
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
