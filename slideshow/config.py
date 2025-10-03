@@ -11,7 +11,33 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+
+
+def _determine_data_dir() -> pathlib.Path:
+    """Bestimmt ein beschreibbares Datenverzeichnis."""
+
+    env_path = os.environ.get("SLIDESHOW_DATA_DIR")
+    candidates = []
+    if env_path:
+        candidates.append(pathlib.Path(env_path).expanduser())
+
+    default_path = pathlib.Path.home() / ".slideshow"
+    candidates.append(default_path)
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        else:
+            return candidate
+
+    # Sollte keiner der Kandidaten funktionieren, nutzen wir den Default-Pfad.
+    default_path.mkdir(parents=True, exist_ok=True)
+    return default_path
+
+
+DATA_DIR = _determine_data_dir()
 CONFIG_PATH = DATA_DIR / "config.yml"
 SECRETS_PATH = DATA_DIR / "secrets.json"
 DEFAULT_CONFIG = {
@@ -125,7 +151,7 @@ class AppConfig:
 
     @classmethod
     def load(cls) -> "AppConfig":
-        DATA_DIR.mkdir(exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         if not CONFIG_PATH.exists():
             CONFIG_PATH.write_text(yaml.safe_dump(DEFAULT_CONFIG, sort_keys=False), encoding="utf-8")
         with _lock:

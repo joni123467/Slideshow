@@ -7,8 +7,8 @@ from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont
 
-BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
+from .config import DATA_DIR
+
 INFO_DIR = DATA_DIR / "info"
 
 
