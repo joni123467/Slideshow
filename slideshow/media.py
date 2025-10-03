@@ -22,6 +22,35 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
 
 
+def _normalize_subpath(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    sanitized = str(value).replace("\\", "/").strip("/")
+    return sanitized or None
+
+
+def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
+    """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
+
+    if not raw_path:
+        raise ValueError("SMB-Pfad darf nicht leer sein")
+
+    cleaned = raw_path.strip()
+    if cleaned.lower().startswith("smb://"):
+        cleaned = cleaned[6:]
+    cleaned = cleaned.lstrip("\\/")
+    cleaned = cleaned.replace("\\", "/")
+    parts = [part for part in cleaned.split("/") if part]
+
+    if len(parts) < 2:
+        raise ValueError("SMB-Pfad muss Server und Freigabe enthalten")
+
+    server = parts[0]
+    share = parts[1]
+    subpath = "/".join(parts[2:]) if len(parts) > 2 else None
+    return server, share, _normalize_subpath(subpath)
+
+
 class MediaManager:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -54,24 +83,42 @@ class MediaManager:
     def add_smb_source(
         self,
         name: str,
-        server: str,
-        share: str,
+        server: Optional[str] = None,
+        share: Optional[str] = None,
+        *,
         mount_point: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        domain: Optional[str] = None,
+        subpath: Optional[str] = None,
+        smb_path: Optional[str] = None,
         auto_scan: bool = True,
     ) -> MediaSource:
+        if smb_path:
+            parsed_server, parsed_share, parsed_subpath = parse_smb_location(smb_path)
+            server = server or parsed_server
+            share = share or parsed_share
+            subpath = subpath or parsed_subpath
+
+        if not server or not share:
+            raise ValueError("Server und Freigabe müssen angegeben werden")
+
         mount_point = mount_point or f"/mnt/slideshow/{name}"
+        normalized_subpath = _normalize_subpath(subpath)
+        options = {
+            "server": server,
+            "share": share,
+            "username": username,
+        }
+        if domain:
+            options["domain"] = domain
         source = MediaSource(
             name=name,
             type="smb",
             path=mount_point,
-            options={
-                "server": server,
-                "share": share,
-                "username": username,
-            },
+            options=options,
             auto_scan=auto_scan,
+            subpath=normalized_subpath,
         )
         if password:
             save_secret(f"smb:{name}", password)
@@ -104,6 +151,9 @@ class MediaManager:
             option_parts.insert(0, f"password={password}")
         else:
             option_parts.insert(0, "guest")
+        domain = source.options.get("domain")
+        if domain:
+            option_parts.insert(0, f"domain={domain}")
         extra_options = source.options.get("options") or source.options.get("extra_options")
         if isinstance(extra_options, str) and extra_options.strip():
             option_parts.append(extra_options.strip())
@@ -157,7 +207,11 @@ class MediaManager:
     def scan_directory(self, source: MediaSource, base_path: Optional[str] = None) -> List[PlaylistItem]:
         items: List[PlaylistItem] = []
         source_root = pathlib.Path(source.path)
-        base = source_root / base_path if base_path else source_root
+        subpath = base_path
+        if not subpath:
+            subpath = source.subpath
+        normalized = _normalize_subpath(subpath)
+        base = source_root / pathlib.Path(normalized) if normalized else source_root
         if not base.exists():
             LOGGER.warning("Verzeichnis %s existiert nicht", base)
             return []
@@ -234,7 +288,17 @@ class MediaManager:
                 except Exception as exc:  # pragma: no cover - defensive
                     LOGGER.warning("Konnte linke Quelle %s nicht mounten: %s", left_source, exc)
                 else:
-                    left_items = self.scan_directory(source, left_path or None)
+                    base = left_path or None
+                    if base and source.subpath:
+                        base = "/".join(
+                            part
+                            for part in (
+                                _normalize_subpath(source.subpath),
+                                _normalize_subpath(base),
+                            )
+                            if part
+                        )
+                    left_items = self.scan_directory(source, base)
             else:
                 LOGGER.warning("Linke Quelle %s unbekannt", left_source)
 
@@ -246,7 +310,17 @@ class MediaManager:
                 except Exception as exc:  # pragma: no cover - defensive
                     LOGGER.warning("Konnte rechte Quelle %s nicht mounten: %s", right_source, exc)
                 else:
-                    right_items = self.scan_directory(source, right_path or None)
+                    base = right_path or None
+                    if base and source.subpath:
+                        base = "/".join(
+                            part
+                            for part in (
+                                _normalize_subpath(source.subpath),
+                                _normalize_subpath(base),
+                            )
+                            if part
+                        )
+                    right_items = self.scan_directory(source, base)
             else:
                 LOGGER.warning("Rechte Quelle %s unbekannt", right_source)
 

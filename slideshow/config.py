@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
             "path": str((DATA_DIR / "media").resolve()),
             "options": {},
             "auto_scan": True,
+            "subpath": None,
         }
     ],
     "playlist": [],
@@ -69,6 +70,7 @@ class MediaSource:
     path: str
     options: Dict[str, Any]
     auto_scan: bool = False
+    subpath: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -138,6 +140,7 @@ class AppConfig:
                     path=src.get("path"),
                     options=src.get("options", {}),
                     auto_scan=src.get("auto_scan", False),
+                    subpath=src.get("subpath"),
                 )
                 for src in config["media_sources"]
             ],

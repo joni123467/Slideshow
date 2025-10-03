@@ -1,0 +1,118 @@
+{% extends 'layout.html' %}
+{% block title %}System – Slideshow{% endblock %}
+{% block content %}
+<section class="grid system-grid">
+  <article>
+    <h2>Updates</h2>
+    <form method="post" action="{{ url_for('system_update') }}" class="grid-form">
+      <label>Branch auswählen
+        <select name="branch">
+          {% set displayed = false %}
+          {% for branch in branches %}
+            {% set displayed = true %}
+            <option value="{{ branch }}" {% if branch == current_branch %}selected{% endif %}>{{ branch }}</option>
+          {% endfor %}
+          {% if not displayed and current_branch %}
+            <option value="{{ current_branch }}" selected>{{ current_branch }}</option>
+          {% endif %}
+        </select>
+      </label>
+      <button type="submit">Update starten</button>
+    </form>
+    <p class="muted">Aktueller Branch: <strong>{{ current_branch or 'unbekannt' }}</strong></p>
+  </article>
+
+  <article>
+    <h2>Service &amp; Aktionen</h2>
+    <p><strong>Service-Status:</strong> {{ service_status or 'unbekannt' }}</p>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('system_service', action='restart') }}">
+        <button type="submit">Service neu starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_service', action='start') }}">
+        <button type="submit">Service starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_service', action='stop') }}">
+        <button type="submit">Service stoppen</button>
+      </form>
+    </div>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('system_reboot') }}" onsubmit="return confirm('Raspberry Pi wirklich neu starten?');">
+        <button type="submit">Raspberry Pi neu starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_shutdown') }}" onsubmit="return confirm('Raspberry Pi herunterfahren?');">
+        <button type="submit" class="danger">Herunterfahren</button>
+      </form>
+    </div>
+  </article>
+
+  <article class="logs">
+    <h2>Protokolle</h2>
+    <div class="log-controls">
+      <label>Log auswählen
+        <select id="log-select">
+          {% for key, info in log_sources.items() %}
+          <option value="{{ key }}">{{ info.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Zeilen
+        <input type="number" id="log-lines" value="200" min="10" max="2000" />
+      </label>
+      <button type="button" id="log-refresh">Aktualisieren</button>
+    </div>
+    <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
+  </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const select = document.getElementById('log-select');
+    const output = document.getElementById('log-output');
+    const linesInput = document.getElementById('log-lines');
+    const refresh = document.getElementById('log-refresh');
+    const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
+
+    async function loadLog() {
+      if (!select || !output) {
+        return;
+      }
+      const name = select.value;
+      const lines = linesInput && linesInput.value ? linesInput.value : '200';
+      if (!name) {
+        output.textContent = 'Keine Logdatei ausgewählt.';
+        return;
+      }
+      output.textContent = 'Lade Log …';
+      try {
+        const response = await fetch(baseUrl.replace('__LOG__', encodeURIComponent(name)) + `?lines=${encodeURIComponent(lines)}`);
+        if (!response.ok) {
+          output.textContent = `Fehler beim Laden (${response.status})`;
+          return;
+        }
+        const text = await response.text();
+        output.textContent = text || 'Keine Einträge vorhanden.';
+      } catch (error) {
+        output.textContent = 'Fehler beim Abrufen des Logs.';
+      }
+    }
+
+    if (refresh) {
+      refresh.addEventListener('click', loadLog);
+    }
+    if (select) {
+      select.addEventListener('change', loadLog);
+    }
+    if (linesInput) {
+      linesInput.addEventListener('change', loadLog);
+    }
+
+    if (select && select.value) {
+      loadLog();
+    }
+  });
+</script>
+{% endblock %}
