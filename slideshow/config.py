@@ -241,6 +241,27 @@ class AppConfig:
             # Änderungen an der Konfiguration dauerhaft speichern, damit sie nicht erneut eingelesen werden.
             self.save()
 
+        transition = (self.playback.transition_type or "none").lower()
+        if transition == "slide":
+            transition = "slideleft"
+        valid_transitions = {
+            "none",
+            "fade",
+            "fadeblack",
+            "fadewhite",
+            "wipeleft",
+            "wiperight",
+            "wipeup",
+            "wipedown",
+            "slideleft",
+            "slideright",
+            "slideup",
+            "slidedown",
+        }
+        if transition not in valid_transitions:
+            transition = "none"
+        self.playback.transition_type = transition
+
 
 def _normalize_str_list(value: Any) -> List[str]:
     if isinstance(value, (list, tuple)):

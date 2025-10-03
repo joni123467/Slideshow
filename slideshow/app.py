@@ -1,10 +1,11 @@
 """Flask-Anwendung für die Slideshow."""
 from __future__ import annotations
 
+import dataclasses
 import functools
 import logging
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
@@ -20,6 +21,23 @@ from .state import get_state
 from .system import SystemManager
 
 LOGGER = logging.getLogger(__name__)
+
+TRANSITION_OPTIONS: Tuple[Tuple[str, str], ...] = (
+    ("none", "Keiner"),
+    ("fade", "Überblendung"),
+    ("fadeblack", "Blende zu Schwarz"),
+    ("fadewhite", "Blende zu Weiß"),
+    ("wipeleft", "Wischen nach links"),
+    ("wiperight", "Wischen nach rechts"),
+    ("wipeup", "Wischen nach oben"),
+    ("wipedown", "Wischen nach unten"),
+    ("slideleft", "Schieben nach links"),
+    ("slideright", "Schieben nach rechts"),
+    ("slideup", "Schieben nach oben"),
+    ("slidedown", "Schieben nach unten"),
+)
+
+ALLOWED_TRANSITIONS = {option for option, _ in TRANSITION_OPTIONS}
 
 
 def create_app(config: Optional[AppConfig] = None, player_service: Optional[PlayerService] = None) -> Flask:
@@ -109,6 +127,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             service_status=service_status,
         )
 
+    @app.route("/media/preview/<string:source>/<path:media_path>")
+    @pam_required
+    def media_preview(source: str, media_path: str):
+        try:
+            content, mime = media_manager.generate_preview(source, media_path)
+        except TypeError:
+            abort(415)
+        except (ValueError, FileNotFoundError, PermissionError):
+            abort(404)
+        response = Response(content, mimetype=mime)
+        response.headers["Cache-Control"] = "public, max-age=60"
+        return response
+
     @app.route("/media")
     @pam_required
     def media_settings():
@@ -131,6 +162,57 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             config=cfg,
         )
 
+    @app.route("/sources/<path:name>/edit", methods=["GET", "POST"])
+    @pam_required
+    def edit_source(name: str):
+        source = cfg.get_source(name)
+        if not source or source.type != "smb":
+            abort(404)
+
+        if request.method == "POST":
+            new_name = (request.form.get("name") or "").strip() or source.name
+            smb_path = (request.form.get("smb_path") or "").strip() or None
+            server = (request.form.get("server") or "").strip() or None
+            share = (request.form.get("share") or "").strip() or None
+            username = (request.form.get("username") or "").strip()
+            domain = (request.form.get("domain") or "").strip()
+            subpath = (request.form.get("subpath") or "").strip() or None
+            auto_scan = request.form.get("auto_scan") is not None
+            password_raw = request.form.get("password")
+            password_action = request.form.get("clear_password")
+            password: Optional[str]
+            if password_action == "1":
+                password = ""
+            elif password_raw:
+                password = password_raw
+            else:
+                password = None
+
+            try:
+                media_manager.update_source(
+                    name,
+                    new_name=new_name,
+                    smb_path=smb_path,
+                    server=server,
+                    share=share,
+                    username=username or None,
+                    password=password,
+                    domain=domain or None,
+                    subpath=subpath,
+                    auto_scan=auto_scan,
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.exception("Konnte Quelle nicht aktualisieren")
+                flash(f"Aktualisierung fehlgeschlagen: {exc}", "danger")
+            else:
+                player.reload()
+                flash("Quelle aktualisiert", "success")
+                return redirect(url_for("media_settings"))
+
+        return render_template("edit_source.html", source=source)
+
     @app.route("/playback")
     @pam_required
     def playback_settings_page():
@@ -140,6 +222,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             config=cfg,
             sources=sources,
             state=get_state(),
+            transition_options=TRANSITION_OPTIONS,
         )
 
     @app.route("/network")
@@ -334,7 +417,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         playback.image_rotation = rotation % 360
 
         transition = (request.form.get("transition_type") or playback.transition_type or "none").lower()
-        if transition not in {"none", "fade", "slide"}:
+        if transition not in ALLOWED_TRANSITIONS:
             transition = "none"
         playback.transition_type = transition
 
@@ -434,6 +517,135 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "sources": media_manager.serialize_sources(),
             "playlist": media_manager.serialize_playlist(),
             "network": network_manager.serialize(),
+            "playback": dataclasses.asdict(cfg.playback),
         })
+
+    @app.route("/api/player/<string:action>", methods=["POST"])
+    @pam_required
+    def api_player_action(action: str):
+        try:
+            if action == "start":
+                player.start()
+            elif action == "stop":
+                player.stop()
+            elif action == "reload":
+                player.reload()
+            else:
+                return jsonify({"status": "error", "message": "Unbekannte Aktion"}), 400
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("API-Aktion %s fehlgeschlagen", action)
+            return jsonify({"status": "error", "message": str(exc)}), 500
+        return jsonify({"status": "ok", "action": action})
+
+    @app.route("/api/player/info-screen", methods=["POST"])
+    @pam_required
+    def api_player_info_screen():
+        payload = request.get_json(silent=True) or {}
+        enabled = bool(payload.get("enabled"))
+        player.show_info_screen(enabled)
+        return jsonify({"status": "ok", "enabled": enabled})
+
+    @app.route("/api/playback", methods=["PUT"])
+    @pam_required
+    def api_update_playback():
+        data = request.get_json(silent=True) or {}
+        playback = cfg.playback
+        try:
+            if "image_duration" in data:
+                playback.image_duration = max(1, int(data["image_duration"]))
+            if "image_fit" in data:
+                fit = str(data["image_fit"]).lower()
+                if fit not in {"contain", "stretch", "original"}:
+                    raise ValueError("Ungültiger Bildmodus")
+                playback.image_fit = fit
+            if "image_rotation" in data:
+                playback.image_rotation = int(data["image_rotation"]) % 360
+            if "transition_type" in data:
+                transition = str(data["transition_type"]).lower()
+                if transition not in ALLOWED_TRANSITIONS:
+                    raise ValueError("Unbekannter Übergang")
+                playback.transition_type = transition
+            if "transition_duration" in data:
+                playback.transition_duration = max(0.2, min(10.0, float(data["transition_duration"])))
+            if "display_resolution" in data:
+                playback.display_resolution = str(data["display_resolution"]).strip()
+            if "video_player_args" in data:
+                playback.video_player_args = [str(arg) for arg in data["video_player_args"] if str(arg).strip()]
+            if "image_viewer_args" in data:
+                playback.image_viewer_args = [str(arg) for arg in data["image_viewer_args"] if str(arg).strip()]
+            if "splitscreen_enabled" in data:
+                playback.splitscreen_enabled = bool(data["splitscreen_enabled"])
+            if "splitscreen_left_source" in data:
+                playback.splitscreen_left_source = data["splitscreen_left_source"] or None
+            if "splitscreen_left_path" in data:
+                playback.splitscreen_left_path = str(data["splitscreen_left_path"]).strip()
+            if "splitscreen_right_source" in data:
+                playback.splitscreen_right_source = data["splitscreen_right_source"] or None
+            if "splitscreen_right_path" in data:
+                playback.splitscreen_right_path = str(data["splitscreen_right_path"]).strip()
+        except (TypeError, ValueError) as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+
+        cfg.save()
+        player.reload()
+        return jsonify({"status": "ok", "playback": dataclasses.asdict(playback)})
+
+    @app.route("/api/sources", methods=["GET", "POST"])
+    @pam_required
+    def api_sources():
+        if request.method == "GET":
+            return jsonify({"sources": media_manager.serialize_sources()})
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            source = media_manager.add_smb_source(
+                name=payload.get("name", "").strip(),
+                server=payload.get("server"),
+                share=payload.get("share"),
+                username=payload.get("username"),
+                password=payload.get("password"),
+                domain=payload.get("domain"),
+                subpath=payload.get("subpath"),
+                smb_path=payload.get("smb_path"),
+                auto_scan=bool(payload.get("auto_scan", True)),
+            )
+        except Exception as exc:
+            LOGGER.exception("Konnte Quelle nicht anlegen")
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        player.reload()
+        return jsonify({"status": "ok", "source": dataclasses.asdict(source)})
+
+    @app.route("/api/sources/<path:name>", methods=["PUT", "DELETE"])
+    @pam_required
+    def api_source_detail(name: str):
+        if request.method == "DELETE":
+            try:
+                media_manager.remove_source(name)
+            except Exception as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
+            player.reload()
+            return jsonify({"status": "ok"})
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            password_value = payload.get("password")
+            password = password_value if password_value is not None else None
+            source = media_manager.update_source(
+                name,
+                new_name=payload.get("name"),
+                smb_path=payload.get("smb_path"),
+                server=payload.get("server"),
+                share=payload.get("share"),
+                username=payload.get("username"),
+                password=password,
+                domain=payload.get("domain"),
+                subpath=payload.get("subpath"),
+                auto_scan=payload.get("auto_scan"),
+            )
+        except Exception as exc:
+            LOGGER.exception("Konnte Quelle nicht aktualisieren")
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        player.reload()
+        return jsonify({"status": "ok", "source": dataclasses.asdict(source)})
 
     return app
