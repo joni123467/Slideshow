@@ -1,0 +1,81 @@
+{% extends 'layout.html' %}
+{% block title %}Medienquellen – Slideshow{% endblock %}
+{% block content %}
+<section class="grid">
+  <article>
+    <h2>Verfügbare Quellen</h2>
+    <p class="muted">Alle Quellen mit aktiviertem automatischem Abgleich werden regelmäßig eingehängt und nach neuen Medien durchsucht.</p>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Typ</th>
+            <th>Mountpunkt</th>
+            <th>Unterordner</th>
+            <th>Automatisch</th>
+            <th>Dateien</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for source in sources %}
+          <tr>
+            <td>{{ source.name }}</td>
+            <td>{{ source.type }}</td>
+            <td><code>{{ source.path }}</code></td>
+            <td>{% if source.subpath %}<code>{{ source.subpath }}</code>{% else %}–{% endif %}</td>
+            <td>{% if source.auto_scan %}Ja{% else %}Nein{% endif %}</td>
+            <td>
+              {% if auto_totals.get(source.name) is not none %}
+                {{ auto_totals[source.name] }}
+              {% else %}
+                –
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">Keine Quellen konfiguriert.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article>
+    <h2>SMB-Quelle hinzufügen</h2>
+    <form method="post" action="{{ url_for('add_smb_source') }}" class="grid-form">
+      <label>Bezeichnung
+        <input type="text" name="name" placeholder="z. B. Produktion" required />
+      </label>
+      <label>SMB-Pfad
+        <input type="text" name="smb_path" placeholder="\\\\192.168.150.10\\Software\\RPI-Test\\1" />
+      </label>
+      <label>Server/IP (optional, falls oben leer)
+        <input type="text" name="server" placeholder="192.168.150.10" />
+      </label>
+      <label>Freigabe (optional)
+        <input type="text" name="share" placeholder="Software" />
+      </label>
+      <label>Unterordner (optional)
+        <input type="text" name="subpath" placeholder="RPI-Test/1" />
+      </label>
+      <label>Domäne (optional)
+        <input type="text" name="domain" placeholder="MEINE-DOM" />
+      </label>
+      <label>Benutzername (optional)
+        <input type="text" name="username" placeholder="domäne\\benutzer" />
+      </label>
+      <label>Passwort
+        <input type="password" name="password" />
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="auto_scan" value="1" checked /> Automatisch synchronisieren
+      </label>
+      <button type="submit">Quelle speichern</button>
+    </form>
+    <p class="muted">Wird nur Server und Freigabe angegeben, wird der gesamte Inhalt berücksichtigt. Mit einem Unterordner lässt sich die Wiedergabe auf einen Teilbereich der Freigabe einschränken.</p>
+  </article>
+</section>
+{% endblock %}

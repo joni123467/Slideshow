@@ -73,6 +73,8 @@ fi
 
 echo "$USER_NAME:$USER_PASSWORD" | chpasswd
 
+USER_UID="$(id -u "$USER_NAME")"
+
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 
@@ -87,6 +89,7 @@ chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/nul
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
 REBOOT_BIN="$(command -v reboot || echo /sbin/reboot)"
+POWEROFF_BIN="$(command -v poweroff || echo /sbin/poweroff)"
 cat <<SUDOERS > "$SUDOERS_FILE"
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/update.sh *
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/mount_smb.sh *
@@ -95,6 +98,7 @@ $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN stop slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $REBOOT_BIN
+$USER_NAME ALL=(root) NOPASSWD: $POWEROFF_BIN
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
 
@@ -110,15 +114,22 @@ fi
 cat <<SERVICE > "$SERVICE_FILE"
 [Unit]
 Description=Slideshow Service
-After=network.target
+After=network.target graphical.target
+Wants=graphical.target
 
 [Service]
 Type=simple
 User=$USER_NAME
 WorkingDirectory=$APP_DIR
 Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/%u/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStartPre=/bin/mkdir -p /run/user/%U
+ExecStartPre=/bin/chown %u:%u /run/user/%U
 ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

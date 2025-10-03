@@ -10,8 +10,12 @@
     <header class="topbar">
       <h1>Slideshow Steuerung</h1>
       <div class="version">Version {{ slideshow_version }}</div>
-      <nav>
-        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <nav class="main-nav">
+        <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Übersicht</a>
+        <a href="{{ url_for('media_settings') }}" class="{% if request.endpoint == 'media_settings' %}active{% endif %}">Medien</a>
+        <a href="{{ url_for('playback_settings_page') }}" class="{% if request.endpoint in ['playback_settings_page', 'player_control', 'player_info_screen'] %}active{% endif %}">Wiedergabe</a>
+        <a href="{{ url_for('network_settings') }}" class="{% if request.endpoint in ['network_settings', 'update_network'] %}active{% endif %}">Netzwerk</a>
+        <a href="{{ url_for('system_settings') }}" class="{% if request.endpoint in ['system_settings', 'system_update', 'system_service', 'system_reboot', 'system_shutdown'] %}active{% endif %}">System</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       </nav>
     </header>
