@@ -1,0 +1,261 @@
+:root {
+  color-scheme: dark light;
+  font-family: "Segoe UI", Roboto, sans-serif;
+  --primary: #2b6cb0;
+  --bg: #0f172a;
+  --fg: #f8fafc;
+  --card: rgba(255, 255, 255, 0.08);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.topbar nav a {
+  color: var(--fg);
+  margin-left: 1rem;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.topbar .version {
+  margin-left: auto;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.content {
+  padding: 2rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+article {
+  background: var(--card);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.3);
+}
+
+article h2 {
+  margin-top: 0;
+}
+
+.status-block {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-block h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+table th,
+table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--fg);
+}
+
+button {
+  background: var(--primary);
+  border: none;
+  cursor: pointer;
+  color: white;
+}
+
+button.danger {
+  background: #e53e3e;
+}
+
+form {
+  margin-bottom: 0.75rem;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.button-row form {
+  margin: 0;
+}
+
+.logs {
+  display: flex;
+  flex-direction: column;
+}
+
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.logs pre {
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.5rem;
+}
+
+.grid-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.grid-form label,
+.grid-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.grid-form fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.grid-form fieldset legend {
+  padding: 0 0.5rem;
+  font-weight: 600;
+}
+
+.split-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.split-grid h4 {
+  margin: 0 0 0.5rem 0;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.checkbox input[type="checkbox"] {
+  width: auto;
+}
+
+.flash-container {
+  margin-bottom: 1rem;
+}
+
+.flash {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.flash.success {
+  background: rgba(56, 161, 105, 0.2);
+}
+
+.flash.danger {
+  background: rgba(229, 62, 62, 0.2);
+}
+
+.flash.info {
+  background: rgba(66, 153, 225, 0.2);
+}
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  height: 100vh;
+}
+
+.login-form {
+  background: rgba(15, 23, 42, 0.8);
+  padding: 2rem;
+  border-radius: 1rem;
+  width: min(320px, 90vw);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.login-form h1 {
+  margin: 0 0 1rem 0;
+  text-align: center;
+}
+
+.login-form label {
+  font-weight: 600;
+}
+
+.version-hint {
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
