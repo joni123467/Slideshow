@@ -28,7 +28,12 @@
 
   <article>
     <h2>Service &amp; Aktionen</h2>
-    <p><strong>Service-Status:</strong> {{ service_status or 'unbekannt' }}</p>
+    <div class="status-flags">
+      <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+        {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
+      </span>
+      <span class="muted">Status laut systemd: {{ service_status or 'unbekannt' }}</span>
+    </div>
     <div class="button-row">
       <form method="post" action="{{ url_for('system_service', action='restart') }}">
         <button type="submit">Service neu starten</button>
@@ -50,6 +55,30 @@
     </div>
   </article>
 
+  <article>
+    <h2>Konfiguration</h2>
+    <div class="button-row">
+      <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>
+    </div>
+    <form method="post" action="{{ url_for('import_config') }}" enctype="multipart/form-data" class="inline-form">
+      <label>Datei auswählen
+        <input type="file" name="config_file" accept=".zip,.yml,.yaml,.json" required />
+      </label>
+      <button type="submit">Konfiguration importieren</button>
+      <p class="muted">Unterstützt werden exportierte ZIP-Archive oder eine einzelne <code>config.yml</code>.</p>
+    </form>
+    <form method="post" action="{{ url_for('update_theme') }}" class="inline-form theme-form">
+      <label>Theme auswählen
+        <select name="theme">
+          {% for value, label in theme_choices %}
+          <option value="{{ value }}" {% if config.ui.theme == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Theme übernehmen</button>
+    </form>
+  </article>
+
   <article class="logs">
     <h2>Protokolle</h2>
     <div class="log-controls">
@@ -64,6 +93,7 @@
         <input type="number" id="log-lines" value="200" min="10" max="2000" />
       </label>
       <button type="button" id="log-refresh">Aktualisieren</button>
+      <a id="log-download" class="button-link" href="#" download>Herunterladen</a>
     </div>
     <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
   </article>
@@ -78,7 +108,9 @@
     const output = document.getElementById('log-output');
     const linesInput = document.getElementById('log-lines');
     const refresh = document.getElementById('log-refresh');
+    const downloadLink = document.getElementById('log-download');
     const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
+    const downloadBase = "{{ url_for('download_log', name='__LOG__') }}";
 
     async function loadLog() {
       if (!select || !output) {
@@ -88,7 +120,15 @@
       const lines = linesInput && linesInput.value ? linesInput.value : '200';
       if (!name) {
         output.textContent = 'Keine Logdatei ausgewählt.';
+        if (downloadLink) {
+          downloadLink.classList.add('is-disabled');
+          downloadLink.href = '#';
+        }
         return;
+      }
+      if (downloadLink) {
+        downloadLink.classList.remove('is-disabled');
+        downloadLink.href = downloadBase.replace('__LOG__', encodeURIComponent(name));
       }
       output.textContent = 'Lade Log …';
       try {
@@ -116,6 +156,9 @@
 
     if (select && select.value) {
       loadLog();
+    } else if (downloadLink) {
+      downloadLink.classList.add('is-disabled');
+      downloadLink.href = '#';
     }
   });
 </script>

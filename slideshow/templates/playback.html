@@ -48,9 +48,9 @@
       </label>
       <label>Übergang
         <select name="transition_type">
-          <option value="none" {% if config.playback.transition_type == 'none' %}selected{% endif %}>Keiner</option>
-          <option value="fade" {% if config.playback.transition_type == 'fade' %}selected{% endif %}>Fade</option>
-          <option value="slide" {% if config.playback.transition_type == 'slide' %}selected{% endif %}>Slide</option>
+          {% for value, label in transition_options %}
+          <option value="{{ value }}" {% if config.playback.transition_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </label>
       <label>Übergangsdauer (Sekunden)
@@ -70,9 +70,16 @@
       <fieldset class="splitscreen">
         <legend>Splitscreen</legend>
         <label class="checkbox">
-          <input type="checkbox" name="splitscreen_enabled" value="1" {% if config.playback.splitscreen_enabled %}checked{% endif %} /> Aktivieren
+          <input type="checkbox" id="splitscreen-toggle" name="splitscreen_enabled" value="1" {% if config.playback.splitscreen_enabled %}checked{% endif %} /> Aktivieren
         </label>
-        <div class="split-grid">
+        <label class="split-ratio" {% if not config.playback.splitscreen_enabled %}hidden{% endif %}>
+          Aufteilung (links/rechts)
+          <div class="split-ratio__controls">
+            <input type="range" min="10" max="90" name="splitscreen_ratio" id="splitscreen-ratio" value="{{ config.playback.splitscreen_ratio }}" />
+            <span class="muted"><span id="splitscreen-ratio-label">{{ config.playback.splitscreen_ratio }}</span>% links</span>
+          </div>
+        </label>
+        <div class="split-grid" {% if not config.playback.splitscreen_enabled %}hidden{% endif %}>
           <div>
             <h4>Linke Seite</h4>
             <label>Quelle
@@ -107,4 +114,41 @@
     </form>
   </article>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const toggle = document.getElementById('splitscreen-toggle');
+    const grid = document.querySelector('.split-grid');
+    const ratioWrapper = document.querySelector('.split-ratio');
+    const ratioInput = document.getElementById('splitscreen-ratio');
+    const ratioLabel = document.getElementById('splitscreen-ratio-label');
+    if (!toggle || !grid) {
+      return;
+    }
+
+    const updateVisibility = () => {
+      grid.hidden = !toggle.checked;
+      if (ratioWrapper) {
+        ratioWrapper.hidden = !toggle.checked;
+      }
+    };
+
+    const updateLabel = () => {
+      if (!ratioInput || !ratioLabel) {
+        return;
+      }
+      ratioLabel.textContent = ratioInput.value;
+    };
+
+    toggle.addEventListener('change', updateVisibility);
+    if (ratioInput) {
+      ratioInput.addEventListener('input', updateLabel);
+      ratioInput.addEventListener('change', updateLabel);
+      updateLabel();
+    }
+    updateVisibility();
+  })();
+</script>
 {% endblock %}

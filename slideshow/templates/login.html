@@ -6,7 +6,7 @@
     <title>Login – Slideshow</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
-  <body class="login-page">
+  <body class="login-page theme-{{ current_theme or 'mid' }}">
     <form class="login-form" method="post">
       <h1>Anmeldung</h1>
       <label for="username">Benutzername</label>

@@ -1,10 +1,11 @@
 """Utilities für Netzwerk- und Hostname-Konfiguration."""
 from __future__ import annotations
 
+import json
 import logging
+import pathlib
 import subprocess
-from dataclasses import asdict
-from typing import Dict
+from typing import Dict, List
 
 from .config import AppConfig
 
@@ -70,3 +71,84 @@ class NetworkManager:
             "interface": self.config.network.interface,
             "static": self.config.network.static,
         }
+
+    def current_settings(self) -> Dict[str, object]:
+        interface = self.config.network.interface or "eth0"
+        info = {
+            "hostname": None,
+            "mode": self.config.network.mode,
+            "interface": interface,
+            "address": None,
+            "router": None,
+            "dns": [],
+        }
+
+        # Hostname ermitteln
+        try:
+            result = subprocess.run(
+                ["hostnamectl", "--static"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            hostname = (result.stdout or "").strip()
+            if hostname:
+                info["hostname"] = hostname
+        except OSError:
+            LOGGER.debug("hostnamectl nicht verfügbar")
+
+        # IP-Adresse auslesen
+        try:
+            result = subprocess.run(
+                ["ip", "-j", "addr", "show", interface],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.stdout:
+                data = json.loads(result.stdout)
+                if data:
+                    addr_info = data[0].get("addr_info", [])
+                    for entry in addr_info:
+                        if entry.get("family") == "inet" and entry.get("scope") == "global":
+                            info["address"] = entry.get("local") + "/" + str(entry.get("prefixlen"))
+                            break
+        except (OSError, json.JSONDecodeError, IndexError, AttributeError):
+            LOGGER.debug("Konnte IP-Informationen nicht ermitteln")
+
+        # Standardroute lesen
+        try:
+            result = subprocess.run(
+                ["ip", "route", "show", "default", "dev", interface],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in (result.stdout or "").splitlines():
+                parts = line.split()
+                if "via" in parts:
+                    idx = parts.index("via")
+                    if idx + 1 < len(parts):
+                        info["router"] = parts[idx + 1]
+                        break
+        except OSError:
+            LOGGER.debug("Konnte Standardroute nicht lesen")
+
+        # DNS-Server sammeln
+        resolv = pathlib.Path("/etc/resolv.conf")
+        dns_servers: List[str] = []
+        try:
+            for line in resolv.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("nameserver"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        dns_servers.append(parts[1])
+        except OSError:
+            LOGGER.debug("Konnte /etc/resolv.conf nicht lesen")
+        if dns_servers:
+            info["dns"] = dns_servers
+
+        return info

@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import logging
 import os
 import pathlib
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+import zipfile
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
@@ -40,6 +42,7 @@ def _determine_data_dir() -> pathlib.Path:
 
 
 DATA_DIR = _determine_data_dir()
+CACHE_DIR = DATA_DIR / "cache"
 CONFIG_PATH = DATA_DIR / "config.yml"
 SECRETS_PATH = DATA_DIR / "secrets.json"
 DEFAULT_CONFIG = {
@@ -73,6 +76,7 @@ DEFAULT_CONFIG = {
         "splitscreen_left_path": "",
         "splitscreen_right_source": None,
         "splitscreen_right_path": "",
+        "splitscreen_ratio": 50,
     },
     "network": {
         "hostname": None,
@@ -87,6 +91,9 @@ DEFAULT_CONFIG = {
     "server": {
         "bind": "0.0.0.0",
         "port": 8080,
+    },
+    "ui": {
+        "theme": "mid",
     },
 }
 
@@ -139,6 +146,7 @@ class PlaybackConfig:
     splitscreen_left_path: str
     splitscreen_right_source: Optional[str]
     splitscreen_right_path: str
+    splitscreen_ratio: int
 
 
 @dataclasses.dataclass
@@ -148,12 +156,18 @@ class ServerConfig:
 
 
 @dataclasses.dataclass
+class UIConfig:
+    theme: str
+
+
+@dataclasses.dataclass
 class AppConfig:
     media_sources: List[MediaSource]
     playlist: List[PlaylistItem]
     playback: PlaybackConfig
     network: NetworkConfig
     server: ServerConfig
+    ui: UIConfig
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -167,6 +181,9 @@ class AppConfig:
         playback_raw = dict(config["playback"])
         playback_raw.pop("video_backend", None)
         playback_raw.pop("image_backend", None)
+        ui_raw = dict(config.get("ui") or {})
+        ui_raw.setdefault("theme", DEFAULT_CONFIG["ui"]["theme"])
+
         instance = cls(
             media_sources=[
                 MediaSource(
@@ -183,6 +200,7 @@ class AppConfig:
             playback=PlaybackConfig(**playback_raw),
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
+            ui=UIConfig(**ui_raw),
         )
         instance.ensure_local_paths()
         return instance
@@ -194,9 +212,15 @@ class AppConfig:
             "playback": dataclasses.asdict(self.playback),
             "network": dataclasses.asdict(self.network),
             "server": dataclasses.asdict(self.server),
+            "ui": dataclasses.asdict(self.ui),
         }
         with _lock:
             CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    def refresh(self) -> "AppConfig":
+        """Lädt die Konfiguration erneut von der Festplatte."""
+
+        return self.__class__.load()
 
     @property
     def media_root(self) -> pathlib.Path:
@@ -239,6 +263,42 @@ class AppConfig:
                 image_removed or "keine",
             )
             # Änderungen an der Konfiguration dauerhaft speichern, damit sie nicht erneut eingelesen werden.
+            self.save()
+            changed = False
+
+        transition = (self.playback.transition_type or "none").lower()
+        if transition == "slide":
+            transition = "slideleft"
+        valid_transitions = {
+            "none",
+            "fade",
+            "fadeblack",
+            "fadewhite",
+            "wipeleft",
+            "wiperight",
+            "wipeup",
+            "wipedown",
+            "slideleft",
+            "slideright",
+            "slideup",
+            "slidedown",
+        }
+        if transition not in valid_transitions:
+            transition = "none"
+        self.playback.transition_type = transition
+
+        ratio = int(self.playback.splitscreen_ratio or 50)
+        ratio = max(10, min(90, ratio))
+        if ratio != self.playback.splitscreen_ratio:
+            self.playback.splitscreen_ratio = ratio
+            changed = True
+
+        allowed_themes = {"light", "mid", "dark"}
+        if self.ui.theme not in allowed_themes:
+            self.ui.theme = "mid"
+            changed = True
+
+        if changed:
             self.save()
 
 
@@ -351,3 +411,55 @@ def delete_secret(key: str) -> None:
     if key in secrets:
         del secrets[key]
         SECRETS_PATH.write_text(json.dumps(secrets), encoding="utf-8")
+
+
+def export_config_bundle(include_secrets: bool = True) -> bytes:
+    """Erstellt ein ZIP-Archiv mit der aktuellen Konfiguration."""
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        if CONFIG_PATH.exists():
+            archive.writestr("config.yml", CONFIG_PATH.read_bytes())
+        if include_secrets and SECRETS_PATH.exists():
+            archive.writestr("secrets.json", SECRETS_PATH.read_bytes())
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _write_file(path: pathlib.Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def import_config_bundle(payload: bytes, *, allowed_files: Optional[Iterable[str]] = None) -> AppConfig:
+    """Importiert Konfigurationsdateien aus einem ZIP-Archiv oder einer einzelnen YAML-Datei."""
+
+    allowed = set(allowed_files or {"config.yml", "secrets.json"})
+    stream = io.BytesIO(payload)
+    try:
+        with zipfile.ZipFile(stream) as archive:
+            members = {name for name in archive.namelist() if name in allowed}
+            if not members:
+                raise ValueError("Archiv enthält keine unterstützten Konfigurationsdateien")
+            for name in members:
+                data = archive.read(name)
+                if name.endswith("config.yml"):
+                    _write_file(CONFIG_PATH, data)
+                elif name.endswith("secrets.json"):
+                    _write_file(SECRETS_PATH, data)
+    except zipfile.BadZipFile:
+        # Als reine YAML-Datei behandeln
+        try:
+            yaml.safe_load(payload.decode("utf-8"))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError("Ungültige Konfigurationsdatei") from exc
+        _write_file(CONFIG_PATH, payload)
+
+    return AppConfig.load()
+
+
+def ensure_cache_dir() -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        LOGGER.debug("Konnte Cache-Verzeichnis nicht erstellen")
