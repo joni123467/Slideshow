@@ -86,6 +86,7 @@ determine_latest_branch() {
 }
 
 BRANCH="${SLIDESHOW_BRANCH:-$(determine_latest_branch "$REPO_URL")}" 
+
 DEFAULT_RUN_USER="${SLIDESHOW_DESKTOP_USER:-${SUDO_USER:-}}"
 if [[ -n "$DESKTOP_USER_ARG" ]]; then
   USER_NAME="$DESKTOP_USER_ARG"
