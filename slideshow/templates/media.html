@@ -72,15 +72,6 @@
       <label>SMB-Pfad
         <input type="text" name="smb_path" placeholder="\\\\192.168.150.10\\Software\\RPI-Test\\1" />
       </label>
-      <label>Server/IP (optional, falls oben leer)
-        <input type="text" name="server" placeholder="192.168.150.10" />
-      </label>
-      <label>Freigabe (optional)
-        <input type="text" name="share" placeholder="Software" />
-      </label>
-      <label>Unterordner (optional)
-        <input type="text" name="subpath" placeholder="RPI-Test/1" />
-      </label>
       <label>Domäne (optional)
         <input type="text" name="domain" placeholder="MEINE-DOM" />
         <small class="muted">Nur erforderlich, wenn die Anmeldung über eine Windows-Domäne erfolgt.</small>
@@ -96,7 +87,7 @@
       </label>
       <button type="submit">Quelle speichern</button>
     </form>
-    <p class="muted">Wird nur Server und Freigabe angegeben, wird der gesamte Inhalt berücksichtigt. Mit einem Unterordner lässt sich die Wiedergabe auf einen Teilbereich der Freigabe einschränken.</p>
+    <p class="muted">Der SMB-Pfad darf optional Unterordner enthalten (z.&nbsp;B. <code>\\\\server\\share\\bilder</code>). Wird kein Unterordner angegeben, wird die gesamte Freigabe synchronisiert.</p>
   </article>
 </section>
 {% endblock %}

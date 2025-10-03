@@ -118,7 +118,13 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 - Der lokale Medienordner (`local`-Quelle) wird beim ersten Start automatisch erzeugt. Im Standarddatenspeicher liegt er unter `<Datenverzeichnis>/media`.
 - Für SMB-Freigaben legt die Anwendung einen beschreibbaren Mount-Root unter `<Datenverzeichnis>/mounts` an. Neue Freigaben werden automatisch dort eingeordnet; bestehende Konfigurationen mit dem alten Standardpfad `/mnt/slideshow/<name>` werden beim nächsten Start migriert, falls sie nicht mehr erreichbar oder beschreibbar sind.
-- Die Weboberfläche erlaubt nun, automatische Scans pro Quelle ein- oder auszuschalten sowie nicht mehr benötigte SMB-Quellen zu löschen. Der Infotext im Formular weist separat auf Domäne und Benutzername hin.
+- Die Weboberfläche erlaubt nun, automatische Scans pro Quelle ein- oder auszuschalten sowie nicht mehr benötigte SMB-Quellen zu löschen. SMB-Freigaben werden ausschließlich über ihren UNC-Pfad (z. B. `\\\\server\\share\\bilder`) angelegt; optionale Unterordner lassen sich direkt im Pfad angeben.
+
+### Zugriff auf die grafische Oberfläche
+
+- Der systemd-Dienst benötigt Zugriff auf die laufende Desktop-Sitzung (`DISPLAY=:0`). Während der Installation kann optional ein vorhandener Desktop-Benutzer angegeben werden; dessen `.Xauthority`-Datei wird in das Dienstkonto kopiert.
+- Sollte keine gültige `.Xauthority` gefunden werden, weist das Installationsskript darauf hin. In diesem Fall muss die Datei manuell bereitgestellt oder der Dienstbenutzer so gewählt werden, dass er bereits Teil der grafischen Sitzung ist.
+- Das Skript legt außerdem einen Eintrag unter `/etc/tmpfiles.d/slideshow.conf` an, damit das Laufzeitverzeichnis `/run/user/<UID>` bei jedem Start mit den korrekten Berechtigungen erzeugt wird.
 
 ### Updates ohne Git-Checkout
 
