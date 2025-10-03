@@ -5,18 +5,20 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME]
+Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME] [--service-user NAME]
 
 Optionen:
   --drm                Aktiviert die Framebuffer-/DRM-Ausgabe (kein Desktop erforderlich).
   --video-backend NAME Setzt das Backend explizit auf "x11" oder "drm".
   --desktop-user NAME  Überschreibt den Desktop-Benutzer für die X11-Anbindung.
+  --service-user NAME  Legt den Dienstbenutzer fest (bestehend oder neu).
   --help               Zeigt diese Hilfe an.
 EOF
 }
 
 VIDEO_BACKEND="${SLIDESHOW_VIDEO_BACKEND:-x11}"
 DESKTOP_USER_ARG=""
+SERVICE_USER_ARG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
     --desktop-user)
       DESKTOP_USER_ARG="${2:-}"
       shift 2 || { echo "--desktop-user benötigt einen Wert" >&2; exit 1; }
+      ;;
+    --service-user)
+      SERVICE_USER_ARG="${2:-}"
+      shift 2 || { echo "--service-user benötigt einen Wert" >&2; exit 1; }
       ;;
     --help)
       usage
@@ -110,24 +116,31 @@ determine_latest_branch() {
 
 BRANCH="${SLIDESHOW_BRANCH:-$(determine_latest_branch "$REPO_URL")}" 
 
-read -rp "Dienstbenutzername [slideshow]: " USER_NAME_INPUT
-USER_NAME="${USER_NAME_INPUT:-slideshow}"
-read -srp "Passwort für $USER_NAME: " USER_PASSWORD
-echo ""
-read -srp "Passwort bestätigen: " USER_PASSWORD_CONFIRM
-echo ""
-if [[ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]]; then
-  echo "Passwörter stimmen nicht überein." >&2
-  exit 1
-fi
-
-if id -u "$USER_NAME" >/dev/null 2>&1; then
-  echo "Benutzer $USER_NAME existiert bereits."
+if [[ -n "$SERVICE_USER_ARG" ]]; then
+  USER_NAME="$SERVICE_USER_ARG"
 else
-  useradd --create-home --system "$USER_NAME"
+  read -rp "Dienstbenutzername (bestehend oder neu) [slideshow]: " USER_NAME_INPUT
+  USER_NAME="${USER_NAME_INPUT:-slideshow}"
 fi
 
-echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+USER_EXISTS=false
+if id -u "$USER_NAME" >/dev/null 2>&1; then
+  USER_EXISTS=true
+  echo "Benutzer $USER_NAME existiert bereits. Passwort bleibt unverändert."
+fi
+
+if [[ "$USER_EXISTS" == false ]]; then
+  read -srp "Passwort für $USER_NAME: " USER_PASSWORD
+  echo ""
+  read -srp "Passwort bestätigen: " USER_PASSWORD_CONFIRM
+  echo ""
+  if [[ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]]; then
+    echo "Passwörter stimmen nicht überein." >&2
+    exit 1
+  fi
+  useradd --create-home --system "$USER_NAME"
+  echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+fi
 
 GROUP_ADDED=()
 GROUP_MISSING=()
