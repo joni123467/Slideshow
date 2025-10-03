@@ -161,6 +161,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             config=cfg,
             branches=branches,
             current_branch=current_branch,
+            has_branch_info=bool(branches or current_branch),
+            fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
         )
 
@@ -220,6 +222,36 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             return redirect(url_for("media_settings"))
 
         flash("SMB-Quelle hinzugefügt", "success")
+        return redirect(url_for("media_settings"))
+
+    @app.route("/sources/<path:name>/auto-scan", methods=["POST"])
+    @pam_required
+    def toggle_auto_scan(name: str):
+        enabled = request.form.get("enabled") in {"1", "true", "on"}
+        try:
+            media_manager.set_auto_scan(name, enabled)
+            player.reload()
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        else:
+            status = "aktiviert" if enabled else "deaktiviert"
+            flash(f"Automatischer Scan für {name} {status}", "success")
+        return redirect(url_for("media_settings"))
+
+    @app.route("/sources/<path:name>/delete", methods=["POST"])
+    @pam_required
+    def delete_source(name: str):
+        confirm = request.form.get("confirm")
+        if confirm not in {"1", "true", "on", "yes"}:
+            flash("Löschung nicht bestätigt", "warning")
+            return redirect(url_for("media_settings"))
+        try:
+            media_manager.remove_source(name)
+            player.reload()
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        else:
+            flash(f"Quelle {name} entfernt", "info")
         return redirect(url_for("media_settings"))
 
     @app.route("/network", methods=["POST"])

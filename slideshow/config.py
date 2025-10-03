@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 import pathlib
 import threading
@@ -10,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+LOGGER = logging.getLogger(__name__)
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -158,7 +160,7 @@ class AppConfig:
             with CONFIG_PATH.open("r", encoding="utf-8") as fh:
                 raw = yaml.safe_load(fh) or {}
         config = _merge_dict(DEFAULT_CONFIG, raw)
-        return cls(
+        instance = cls(
             media_sources=[
                 MediaSource(
                     name=src.get("name"),
@@ -175,6 +177,8 @@ class AppConfig:
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
         )
+        instance.ensure_local_paths()
+        return instance
 
     def save(self) -> None:
         raw = {
@@ -196,6 +200,16 @@ class AppConfig:
             if src.name == name:
                 return src
         return None
+
+    # Helpers -------------------------------------------------------------
+    def ensure_local_paths(self) -> None:
+        for source in self.media_sources:
+            if source.type != "local":
+                continue
+            try:
+                pathlib.Path(source.path).mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                LOGGER.warning("Konnte lokales Medienverzeichnis %s nicht erstellen: %s", source.path, exc)
 
 
 def _merge_dict(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -224,3 +238,12 @@ def load_secret(key: str, default: Any = None) -> Any:
         return default
     secrets = json.loads(SECRETS_PATH.read_text("utf-8"))
     return secrets.get(key, default)
+
+
+def delete_secret(key: str) -> None:
+    if not SECRETS_PATH.exists():
+        return
+    secrets = json.loads(SECRETS_PATH.read_text("utf-8"))
+    if key in secrets:
+        del secrets[key]
+        SECRETS_PATH.write_text(json.dumps(secrets), encoding="utf-8")

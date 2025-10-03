@@ -5,13 +5,22 @@ import logging
 import mimetypes
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
 from dataclasses import asdict
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
-from .config import AppConfig, MediaSource, PlaylistItem, load_secret, save_secret
+from .config import (
+    AppConfig,
+    DATA_DIR,
+    MediaSource,
+    PlaylistItem,
+    delete_secret,
+    load_secret,
+    save_secret,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +29,36 @@ VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
+MOUNT_ROOT = (DATA_DIR / "mounts").resolve()
+
+
+def _normalize_subpath(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    sanitized = str(value).replace("\\", "/").strip("/")
+    return sanitized or None
+
+
+def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
+    """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
+
+    if not raw_path:
+        raise ValueError("SMB-Pfad darf nicht leer sein")
+
+    cleaned = raw_path.strip()
+    if cleaned.lower().startswith("smb://"):
+        cleaned = cleaned[6:]
+    cleaned = cleaned.lstrip("\\/")
+    cleaned = cleaned.replace("\\", "/")
+    parts = [part for part in cleaned.split("/") if part]
+
+    if len(parts) < 2:
+        raise ValueError("SMB-Pfad muss Server und Freigabe enthalten")
+
+    server = parts[0]
+    share = parts[1]
+    subpath = "/".join(parts[2:]) if len(parts) > 2 else None
+    return server, share, _normalize_subpath(subpath)
 
 
 def _normalize_subpath(value: Optional[str]) -> Optional[str]:
@@ -56,6 +95,74 @@ class MediaManager:
         self.config = config
         helper_path = os.environ.get("SLIDESHOW_MOUNT_HELPER")
         self.mount_helper = pathlib.Path(helper_path) if helper_path else DEFAULT_MOUNT_HELPER
+        try:
+            MOUNT_ROOT.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            LOGGER.warning("Konnte Mount-Verzeichnis %s nicht anlegen: %s", MOUNT_ROOT, exc)
+        self._migrate_mount_points()
+        self._ensure_local_directories()
+
+    # Initialisierungs-Helfer --------------------------------------------
+    def _ensure_local_directories(self) -> None:
+        for source in self.config.media_sources:
+            if source.type == "local":
+                try:
+                    pathlib.Path(source.path).mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    LOGGER.warning("Konnte lokales Verzeichnis %s nicht erstellen: %s", source.path, exc)
+
+    def _slugify(self, name: str) -> str:
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-")
+        return slug or "smb-source"
+
+    def _allocate_mount_point(self, name: str) -> pathlib.Path:
+        base_slug = self._slugify(name)
+        candidate = MOUNT_ROOT / base_slug
+        counter = 2
+        existing_paths = {
+            pathlib.Path(src.path).expanduser().resolve()
+            for src in self.config.media_sources
+            if src.type == "smb"
+        }
+        resolved = candidate.expanduser().resolve()
+        while resolved in existing_paths or candidate.exists():
+            candidate = MOUNT_ROOT / f"{base_slug}-{counter}"
+            counter += 1
+            resolved = candidate.expanduser().resolve()
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # mkdir kann scheitern, der Mount-Helfer legt später erneut an.
+            pass
+        return resolved
+
+    def _is_writable(self, path: pathlib.Path) -> bool:
+        try:
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.mkdir(exist_ok=True)
+            return os.access(str(path), os.W_OK)
+        except OSError:
+            return False
+
+    def _migrate_mount_points(self) -> None:
+        changed = False
+        for source in self.config.media_sources:
+            if source.type != "smb":
+                continue
+            original_path = pathlib.Path(source.path)
+            if not original_path.is_absolute():
+                continue
+            if str(original_path).startswith("/mnt/slideshow"):
+                if not original_path.exists() or not os.access(str(original_path.parent), os.W_OK):
+                    new_path = self._allocate_mount_point(source.name)
+                    LOGGER.info(
+                        "Verschiebe Mountpunkt für %s von %s nach %s", source.name, original_path, new_path
+                    )
+                    source.path = str(new_path)
+                    changed = True
+        if changed:
+            self.config.save()
 
     def _run_mount_helper(self, *args: str) -> subprocess.CompletedProcess:
         helper = self.mount_helper
@@ -103,7 +210,12 @@ class MediaManager:
         if not server or not share:
             raise ValueError("Server und Freigabe müssen angegeben werden")
 
-        mount_point = mount_point or f"/mnt/slideshow/{name}"
+        if mount_point:
+            mount_path = pathlib.Path(mount_point).expanduser().resolve()
+        else:
+            mount_path = self._allocate_mount_point(name)
+        if not self._is_writable(mount_path):
+            raise PermissionError(f"Mount-Ziel {mount_path} ist nicht beschreibbar")
         normalized_subpath = _normalize_subpath(subpath)
         options = {
             "server": server,
@@ -115,7 +227,7 @@ class MediaManager:
         source = MediaSource(
             name=name,
             type="smb",
-            path=mount_point,
+            path=str(mount_path),
             options=options,
             auto_scan=auto_scan,
             subpath=normalized_subpath,
@@ -125,6 +237,29 @@ class MediaManager:
         self.config.media_sources.append(source)
         self.config.save()
         return source
+
+    def set_auto_scan(self, name: str, enabled: bool) -> MediaSource:
+        source = self.config.get_source(name)
+        if not source:
+            raise ValueError(f"Unbekannte Quelle: {name}")
+        if source.auto_scan != enabled:
+            source.auto_scan = enabled
+            self.config.save()
+        return source
+
+    def remove_source(self, name: str) -> None:
+        source = self.config.get_source(name)
+        if not source:
+            raise ValueError(f"Unbekannte Quelle: {name}")
+        if source.type == "local":
+            raise ValueError("Die lokale Standardquelle kann nicht entfernt werden")
+        try:
+            self.unmount_source(source)
+        except Exception:
+            LOGGER.debug("Unmount vor dem Löschen von %s fehlgeschlagen", name)
+        self.config.media_sources = [src for src in self.config.media_sources if src.name != name]
+        delete_secret(f"smb:{name}")
+        self.config.save()
 
     def mount_source(self, source: MediaSource) -> None:
         if source.type != "smb":

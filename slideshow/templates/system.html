@@ -4,13 +4,14 @@
 <section class="grid system-grid">
   <article>
     <h2>Updates</h2>
+    {% if has_branch_info %}
     <form method="post" action="{{ url_for('system_update') }}" class="grid-form">
       <label>Branch auswählen
         <select name="branch">
           {% set displayed = false %}
           {% for branch in branches %}
             {% set displayed = true %}
-            <option value="{{ branch }}" {% if branch == current_branch %}selected{% endif %}>{{ branch }}</option>
+            <option value="{{ branch }}" {% if current_branch and branch == current_branch %}selected{% endif %}>{{ branch }}</option>
           {% endfor %}
           {% if not displayed and current_branch %}
             <option value="{{ current_branch }}" selected>{{ current_branch }}</option>
@@ -20,6 +21,9 @@
       <button type="submit">Update starten</button>
     </form>
     <p class="muted">Aktueller Branch: <strong>{{ current_branch or 'unbekannt' }}</strong></p>
+    {% else %}
+    <p class="muted">Git-Updates stehen in dieser Installation nicht zur Verfügung. Stelle sicher, dass das Repository über Git installiert wurde{% if fallback_repo %} oder prüfe die veröffentlichten Versionen unter <a href="https://github.com/{{ fallback_repo }}/branches" target="_blank" rel="noopener">GitHub</a>{% endif %}.</p>
+    {% endif %}
   </article>
 
   <article>

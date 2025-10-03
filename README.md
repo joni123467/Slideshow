@@ -114,6 +114,16 @@ python manage.py run
 
 Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automatisch auf das Verzeichnis im Benutzerprofil (`~/.slideshow`) zurück.
 
+### Medienquellen und SMB-Mounts
+
+- Der lokale Medienordner (`local`-Quelle) wird beim ersten Start automatisch erzeugt. Im Standarddatenspeicher liegt er unter `<Datenverzeichnis>/media`.
+- Für SMB-Freigaben legt die Anwendung einen beschreibbaren Mount-Root unter `<Datenverzeichnis>/mounts` an. Neue Freigaben werden automatisch dort eingeordnet; bestehende Konfigurationen mit dem alten Standardpfad `/mnt/slideshow/<name>` werden beim nächsten Start migriert, falls sie nicht mehr erreichbar oder beschreibbar sind.
+- Die Weboberfläche erlaubt nun, automatische Scans pro Quelle ein- oder auszuschalten sowie nicht mehr benötigte SMB-Quellen zu löschen. Der Infotext im Formular weist separat auf Domäne und Benutzername hin.
+
+### Updates ohne Git-Checkout
+
+Wird die Anwendung als Paket ohne `.git`-Verzeichnis ausgeliefert, blendet die Update-Seite den Branch-Wechsler aus und verweist stattdessen auf die veröffentlichten Branches des GitHub-Repositories (`https://github.com/joni123467/Slideshow`). Sobald ein Git-Checkout verfügbar ist, erscheinen die Branches wie gewohnt in der Auswahl.
+
 ## Sicherheitshinweise
 
 - Der Webzugang ist nur für authentifizierte Benutzer zugänglich. Die Authentifizierung nutzt das PAM-System des Betriebssystems.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import pathlib
-from typing import Iterable
+from typing import Iterable, Optional, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -19,7 +19,13 @@ class InfoScreen:
         self.output_dir = pathlib.Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def render(self, hostname: str, addresses: Iterable[str], manual: bool = False) -> pathlib.Path:
+    def render(
+        self,
+        hostname: str,
+        addresses: Iterable[str],
+        manual: bool = False,
+        details: Optional[Sequence[str]] = None,
+    ) -> pathlib.Path:
         width, height = 1280, 720
         image = Image.new("RGB", (width, height), color="#0b1d36")
         draw = ImageDraw.Draw(image)
@@ -43,6 +49,9 @@ class InfoScreen:
         lines.append(f"Stand: {now}")
         if manual:
             lines.append("(Infobildschirm manuell aktiviert)")
+        if details:
+            lines.append("")
+            lines.extend(details)
 
         draw.text((60, 60), lines[0], font=font_title, fill="#f7faff")
         offset_y = 160

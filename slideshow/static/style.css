@@ -178,6 +178,17 @@ form {
   white-space: pre-wrap;
 }
 
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.table-actions form {
+  margin: 0;
+}
+
 .inline-form label {
   display: flex;
   flex-direction: column;
