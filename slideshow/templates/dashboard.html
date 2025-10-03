@@ -14,16 +14,30 @@
     </div>
     <div class="status-block">
       <h3>Primäre Anzeige</h3>
-      <p><strong>Datei:</strong> <span data-state="primary-item">{{ state.primary_item or '–' }}</span></p>
+      <p><strong>Quelle:</strong> <span data-state="primary-source">{{ state.primary_source or '–' }}</span></p>
+      <p><strong>Datei:</strong> <span data-state="primary-item">{{ state.primary_media_path or state.primary_item or '–' }}</span></p>
       <p><strong>Status:</strong> <span data-state="primary-status">{{ state.primary_status or 'unbekannt' }}</span></p>
       <p><strong>Gestartet:</strong> <span data-state="primary-started">{% if state.primary_started_at %}{{ state.primary_started_at | datetimeformat }}{% else %}–{% endif %}</span></p>
+      <div class="status-preview" data-preview="primary">
+        <div class="status-preview__frame">
+          <img data-preview-image="primary" src="{{ url_for('state_preview', side='primary') }}" alt="Vorschau primäre Anzeige" hidden />
+          <span data-preview-placeholder="primary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
+        </div>
+      </div>
     </div>
     {% if config.playback.splitscreen_enabled %}
     <div class="status-block" data-secondary-status>
       <h3>Splitscreen rechts</h3>
-      <p><strong>Datei:</strong> <span data-state="secondary-item">{{ state.secondary_item or '–' }}</span></p>
+      <p><strong>Quelle:</strong> <span data-state="secondary-source">{{ state.secondary_source or '–' }}</span></p>
+      <p><strong>Datei:</strong> <span data-state="secondary-item">{{ state.secondary_media_path or state.secondary_item or '–' }}</span></p>
       <p><strong>Status:</strong> <span data-state="secondary-status">{{ state.secondary_status or 'unbekannt' }}</span></p>
       <p><strong>Gestartet:</strong> <span data-state="secondary-started">{% if state.secondary_started_at %}{{ state.secondary_started_at | datetimeformat }}{% else %}–{% endif %}</span></p>
+      <div class="status-preview" data-preview="secondary">
+        <div class="status-preview__frame">
+          <img data-preview-image="secondary" src="{{ url_for('state_preview', side='secondary') }}" alt="Vorschau sekundäre Anzeige" hidden />
+          <span data-preview-placeholder="secondary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
+        </div>
+      </div>
     </div>
     {% endif %}
     <p><strong>Infobildschirm:</strong> <span data-state="info-screen">{% if state.info_screen %}aktiv{% else %}inaktiv{% endif %}{% if state.info_manual %} (manuell){% endif %}</span></p>
@@ -80,9 +94,11 @@
       primaryItem: document.querySelector('[data-state="primary-item"]'),
       primaryStatus: document.querySelector('[data-state="primary-status"]'),
       primaryStarted: document.querySelector('[data-state="primary-started"]'),
+      primarySource: document.querySelector('[data-state="primary-source"]'),
       secondaryItem: document.querySelector('[data-state="secondary-item"]'),
       secondaryStatus: document.querySelector('[data-state="secondary-status"]'),
       secondaryStarted: document.querySelector('[data-state="secondary-started"]'),
+      secondarySource: document.querySelector('[data-state="secondary-source"]'),
       infoScreen: document.querySelector('[data-state="info-screen"]'),
     };
 
@@ -92,6 +108,18 @@
     };
 
     const secondaryBlock = document.querySelector('[data-secondary-status]');
+    const previewImages = {
+      primary: document.querySelector('[data-preview-image="primary"]'),
+      secondary: document.querySelector('[data-preview-image="secondary"]'),
+    };
+    const previewPlaceholders = {
+      primary: document.querySelector('[data-preview-placeholder="primary"]'),
+      secondary: document.querySelector('[data-preview-placeholder="secondary"]'),
+    };
+    const previewUrls = {
+      primary: "{{ url_for('state_preview', side='primary') }}",
+      secondary: "{{ url_for('state_preview', side='secondary') }}",
+    };
     const formatter = new Intl.DateTimeFormat('de-DE', {
       day: '2-digit',
       month: '2-digit',
@@ -121,6 +149,23 @@
       element.textContent = active ? activeLabel : inactiveLabel;
     }
 
+    function updatePreview(side, available, token, mediaType) {
+      const image = previewImages[side];
+      const placeholder = previewPlaceholders[side];
+      if (!image || !placeholder) {
+        return;
+      }
+      if (available) {
+        image.hidden = false;
+        image.src = `${previewUrls[side]}?t=${token || 0}`;
+        placeholder.hidden = true;
+      } else {
+        image.hidden = true;
+        placeholder.hidden = false;
+        placeholder.textContent = mediaType === 'video' ? 'Video in Wiedergabe' : 'Keine Vorschau verfügbar';
+      }
+    }
+
     async function refreshState() {
       try {
         const response = await fetch('{{ url_for('api_state') }}', { cache: 'no-store' });
@@ -128,17 +173,19 @@
           return;
         }
         const data = await response.json();
-        if (stateTargets.primaryItem) stateTargets.primaryItem.textContent = data.primary_item || '–';
+        if (stateTargets.primaryItem) stateTargets.primaryItem.textContent = data.primary_media_path || data.primary_item || '–';
         if (stateTargets.primaryStatus) stateTargets.primaryStatus.textContent = data.primary_status || 'unbekannt';
         if (stateTargets.primaryStarted) stateTargets.primaryStarted.textContent = formatTimestamp(data.primary_started_at);
+        if (stateTargets.primarySource) stateTargets.primarySource.textContent = data.primary_source || '–';
 
         const hasSecondary = Boolean(data.secondary_item || data.secondary_status || data.secondary_started_at);
         if (secondaryBlock) {
           secondaryBlock.style.display = hasSecondary ? '' : 'none';
         }
-        if (stateTargets.secondaryItem) stateTargets.secondaryItem.textContent = data.secondary_item || '–';
+        if (stateTargets.secondaryItem) stateTargets.secondaryItem.textContent = data.secondary_media_path || data.secondary_item || '–';
         if (stateTargets.secondaryStatus) stateTargets.secondaryStatus.textContent = data.secondary_status || 'unbekannt';
         if (stateTargets.secondaryStarted) stateTargets.secondaryStarted.textContent = formatTimestamp(data.secondary_started_at);
+        if (stateTargets.secondarySource) stateTargets.secondarySource.textContent = data.secondary_source || '–';
 
         if (stateTargets.infoScreen) {
           const parts = [];
@@ -148,6 +195,9 @@
           }
           stateTargets.infoScreen.textContent = parts.join(' ');
         }
+
+        updatePreview('primary', data.primary_preview_available, data.primary_preview_token, data.primary_media_type);
+        updatePreview('secondary', data.secondary_preview_available, data.secondary_preview_token, data.secondary_media_type);
 
         setIndicator(statusIndicators.service, Boolean(data.service_active), 'status-indicator--ok', 'status-indicator--down', 'Dienst läuft', 'Dienst ist inaktiv');
         setIndicator(statusIndicators.info, Boolean(data.info_screen), 'status-indicator--info', 'status-indicator--neutral', 'Infobildschirm aktiv', 'Infobildschirm aus');

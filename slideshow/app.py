@@ -6,6 +6,8 @@ import datetime
 import functools
 import io
 import logging
+import mimetypes
+import pathlib
 import subprocess
 from typing import List, Optional, Tuple
 
@@ -52,6 +54,12 @@ TRANSITION_OPTIONS: Tuple[Tuple[str, str], ...] = (
 
 ALLOWED_TRANSITIONS = {option for option, _ in TRANSITION_OPTIONS}
 
+THEME_CHOICES: Tuple[Tuple[str, str], ...] = (
+    ("light", "Hell"),
+    ("mid", "Neutral"),
+    ("dark", "Dunkel"),
+)
+
 
 def create_app(config: Optional[AppConfig] = None, player_service: Optional[PlayerService] = None) -> Flask:
     app = Flask(__name__)
@@ -71,12 +79,23 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     app.extensions["player_service"] = player
     app.extensions["system_manager"] = system_manager
     app.config["SLIDESHOW_VERSION"] = __version__
+    app.config["SLIDESHOW_THEME"] = cfg.ui.theme
+
+    def _preview_token(path_str: Optional[str]) -> int:
+        if not path_str:
+            return 0
+        try:
+            return int(pathlib.Path(path_str).stat().st_mtime)
+        except OSError:
+            return 0
 
     @app.context_processor
     def inject_globals():
         return {
             "slideshow_version": app.config.get("SLIDESHOW_VERSION", "0.0.0"),
             "log_sources": available_logs(),
+            "current_theme": cfg.ui.theme,
+            "theme_choices": THEME_CHOICES,
         }
 
     def service_active(status: Optional[str]) -> bool:
@@ -160,6 +179,37 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         response.headers["Cache-Control"] = "public, max-age=60"
         return response
 
+    @app.route("/state/preview/<string:side>")
+    @pam_required
+    def state_preview(side: str):
+        normalized = side.lower()
+        if normalized not in {"primary", "secondary"}:
+            abort(404)
+        state = get_state()
+        preview_path = (
+            state.primary_preview if normalized == "primary" else state.secondary_preview
+        )
+        media_type = (
+            state.primary_media_type if normalized == "primary" else state.secondary_media_type
+        )
+        if not preview_path or media_type not in {"image", "info"}:
+            abort(404)
+        path = pathlib.Path(preview_path)
+        if not path.exists() or not path.is_file():
+            abort(404)
+        mime, _ = mimetypes.guess_type(str(path))
+        try:
+            response = send_file(
+                path,
+                mimetype=mime or "image/png",
+                as_attachment=False,
+                conditional=True,
+            )
+        except FileNotFoundError:
+            abort(404)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
     @app.route("/media")
     @pam_required
     def media_settings():
@@ -231,7 +281,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 flash("Quelle aktualisiert", "success")
                 return redirect(url_for("media_settings"))
 
-        return render_template("edit_source.html", source=source)
+        smb_prefill = request.form.get("smb_path")
+        if smb_prefill is None:
+            server_opt = source.options.get("server")
+            share_opt = source.options.get("share")
+            subpath_value = request.form.get("subpath") if request.form else source.subpath
+            if server_opt and share_opt:
+                smb_prefill = f"smb://{server_opt}/{share_opt}"
+                normalized_sub = (subpath_value or "").replace("\\", "/").strip("/")
+                if normalized_sub:
+                    smb_prefill = f"{smb_prefill.rstrip('/')}/{normalized_sub}"
+            else:
+                smb_prefill = ""
+        return render_template("edit_source.html", source=source, smb_prefill=smb_prefill or "")
 
     @app.route("/playback")
     @pam_required
@@ -271,6 +333,23 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             service_status=service_status,
             service_active=service_active(service_status),
         )
+
+    @app.route("/system/theme", methods=["POST"])
+    @pam_required
+    def update_theme():
+        theme = (request.form.get("theme") or "").strip().lower()
+        allowed = {name for name, _ in THEME_CHOICES}
+        if theme not in allowed:
+            flash("Ungültiges Theme", "danger")
+            return redirect(url_for("system_settings"))
+        if theme != cfg.ui.theme:
+            cfg.ui.theme = theme
+            cfg.save()
+            app.config["SLIDESHOW_THEME"] = theme
+            flash("Theme aktualisiert", "success")
+        else:
+            flash("Theme ist bereits aktiv", "info")
+        return redirect(url_for("system_settings"))
 
     @app.route("/config/export")
     @pam_required
@@ -312,6 +391,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         new_player = PlayerService(cfg)
         app.extensions["player_service"] = new_player
         player = new_player
+        app.config["SLIDESHOW_THEME"] = cfg.ui.theme
 
         if was_running or cfg.playback.auto_start:
             player.start()
@@ -332,6 +412,28 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except ValueError:
             abort(404)
         return Response(content, mimetype="text/plain; charset=utf-8")
+
+    @app.route("/logs/<string:name>/download")
+    @pam_required
+    def download_log(name: str):
+        log_sources = available_logs()
+        info = log_sources.get(name)
+        if not info:
+            abort(404)
+        path = pathlib.Path(info["path"])
+        if not path.exists() or not path.is_file():
+            abort(404)
+        try:
+            response = send_file(
+                path,
+                mimetype="text/plain; charset=utf-8",
+                as_attachment=True,
+                download_name=path.name,
+            )
+        except FileNotFoundError:
+            abort(404)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
 
     @app.route("/playlist/<int:index>/delete", methods=["POST"])
     @pam_required
@@ -507,10 +609,24 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         playback.splitscreen_enabled = splitscreen_enabled
         left_source = request.form.get("splitscreen_left_source")
         right_source = request.form.get("splitscreen_right_source")
+        def _normalize_split_path(raw: Optional[str]) -> str:
+            if not raw:
+                return ""
+            return str(raw).strip().replace("\\", "/")
+
         playback.splitscreen_left_source = left_source or None
-        playback.splitscreen_left_path = (request.form.get("splitscreen_left_path") or "").strip()
+        playback.splitscreen_left_path = _normalize_split_path(
+            request.form.get("splitscreen_left_path")
+        )
         playback.splitscreen_right_source = right_source or None
-        playback.splitscreen_right_path = (request.form.get("splitscreen_right_path") or "").strip()
+        playback.splitscreen_right_path = _normalize_split_path(
+            request.form.get("splitscreen_right_path")
+        )
+        try:
+            ratio_value = int(request.form.get("splitscreen_ratio") or playback.splitscreen_ratio)
+        except ValueError:
+            ratio_value = playback.splitscreen_ratio
+        playback.splitscreen_ratio = max(10, min(90, ratio_value))
 
         cfg.save()
         player.reload()
@@ -574,13 +690,33 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "primary_item": state.primary_item,
             "primary_status": state.primary_status,
             "primary_started_at": state.primary_started_at,
+            "primary_source": state.primary_source,
+            "primary_media_path": state.primary_media_path,
+            "primary_media_type": state.primary_media_type,
+            "primary_preview": state.primary_preview,
+            "primary_preview_token": _preview_token(state.primary_preview),
+            "primary_preview_available": bool(
+                state.primary_preview
+                and state.primary_media_type in {"image", "info"}
+            ),
             "secondary_item": state.secondary_item,
             "secondary_status": state.secondary_status,
             "secondary_started_at": state.secondary_started_at,
+            "secondary_source": state.secondary_source,
+            "secondary_media_path": state.secondary_media_path,
+            "secondary_media_type": state.secondary_media_type,
+            "secondary_preview": state.secondary_preview,
+            "secondary_preview_token": _preview_token(state.secondary_preview),
+            "secondary_preview_available": bool(
+                state.secondary_preview
+                and state.secondary_media_type in {"image", "info"}
+            ),
             "info_screen": state.info_screen,
             "info_manual": state.info_manual,
             "service_status": svc_status,
             "service_active": service_active(svc_status),
+            "version": app.config.get("SLIDESHOW_VERSION"),
+            "theme": app.config.get("SLIDESHOW_THEME", cfg.ui.theme),
         })
 
     @app.route("/api/config")
@@ -656,6 +792,12 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 playback.splitscreen_right_source = data["splitscreen_right_source"] or None
             if "splitscreen_right_path" in data:
                 playback.splitscreen_right_path = str(data["splitscreen_right_path"]).strip()
+            if "splitscreen_ratio" in data:
+                try:
+                    ratio_value = int(data["splitscreen_ratio"])
+                except (TypeError, ValueError):
+                    raise ValueError("Ungültiges Splitscreen-Verhältnis")
+                playback.splitscreen_ratio = max(10, min(90, ratio_value))
         except (TypeError, ValueError) as exc:
             return jsonify({"status": "error", "message": str(exc)}), 400
 

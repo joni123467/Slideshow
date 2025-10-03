@@ -10,8 +10,8 @@
         <input type="text" name="name" value="{{ request.form.get('name', source.name) }}" required />
       </label>
       <label>SMB-Pfad (optional)
-        <input type="text" name="smb_path" placeholder="\\\\server\\freigabe\\unterordner" value="{{ request.form.get('smb_path', '') }}" />
-        <small class="muted">Wenn angegeben, überschreibt der Pfad Server, Freigabe und Unterordner.</small>
+        <input type="text" name="smb_path" placeholder="\\server\freigabe\unterordner" value="{{ request.form.get('smb_path', smb_prefill) }}" />
+        <small class="muted">Optionaler Gesamtpfad zur Freigabe, z. B. <code>smb://server/share/ordner</code>.</small>
       </label>
       <label>Server
         <input type="text" name="server" value="{{ request.form.get('server', source.options.get('server', '')) }}" />

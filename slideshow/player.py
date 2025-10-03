@@ -61,13 +61,27 @@ class PlayerService:
         self._thread = None
         self._stop_all_controllers()
         self._cleanup_tempdir()
+        info_manual = self._info_manual.is_set()
         set_state(
             None,
             "stopped",
             info_screen=False,
-            info_manual=self._info_manual.is_set(),
-            secondary_item=None,
-            secondary_status="stopped",
+            info_manual=info_manual,
+            source=None,
+            media_path=None,
+            media_type=None,
+            preview_path=None,
+        )
+        set_state(
+            None,
+            "stopped",
+            side="secondary",
+            info_screen=False,
+            info_manual=info_manual,
+            source=None,
+            media_path=None,
+            media_type=None,
+            preview_path=None,
         )
 
     def reload(self) -> None:
@@ -102,8 +116,21 @@ class PlayerService:
                             "idle",
                             info_screen=False,
                             info_manual=True,
-                            secondary_item=None,
-                            secondary_status="stopped",
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                        set_state(
+                            None,
+                            "stopped",
+                            side="secondary",
+                            info_screen=False,
+                            info_manual=True,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
                         )
                         time.sleep(refresh_interval)
                     continue
@@ -118,8 +145,21 @@ class PlayerService:
                             "idle",
                             info_screen=False,
                             info_manual=False,
-                            secondary_item=None,
-                            secondary_status="stopped",
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                        set_state(
+                            None,
+                            "stopped",
+                            side="secondary",
+                            info_screen=False,
+                            info_manual=False,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
                         )
                         time.sleep(refresh_interval)
                     self._reload.clear()
@@ -145,8 +185,21 @@ class PlayerService:
                         "idle",
                         info_screen=False,
                         info_manual=manual_info,
-                        secondary_item=None,
-                        secondary_status="stopped",
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
+                    )
+                    set_state(
+                        None,
+                        "stopped",
+                        side="secondary",
+                        info_screen=False,
+                        info_manual=manual_info,
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
                     )
                     time.sleep(refresh_interval)
                 if not manual_info:
@@ -194,6 +247,10 @@ class PlayerService:
                     side=state_side,
                     info_screen=False,
                     info_manual=self.service._info_manual.is_set(),
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
                 )
                 return
 
@@ -219,6 +276,10 @@ class PlayerService:
                 side=state_side,
                 info_screen=False,
                 info_manual=self.service._info_manual.is_set(),
+                source=None,
+                media_path=None,
+                media_type=None,
+                preview_path=None,
             )
 
     def _ensure_splitscreen_running(self) -> bool:
@@ -274,6 +335,10 @@ class PlayerService:
                     side="primary",
                     info_screen=False,
                     info_manual=self._info_manual.is_set(),
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
                 )
             if not right_items:
                 set_state(
@@ -282,6 +347,10 @@ class PlayerService:
                     side="secondary",
                     info_screen=False,
                     info_manual=self._info_manual.is_set(),
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
                 )
         return True
 
@@ -359,11 +428,13 @@ class PlayerService:
         width, height = self._parse_resolution()
         if side not in {"left", "right"}:
             return None
-        half = width // 2
+        ratio = int(self.config.playback.splitscreen_ratio or 50)
+        ratio = max(10, min(90, ratio))
+        left_width = max(1, (width * ratio) // 100)
+        right_width = max(1, width - left_width)
         if side == "left":
-            return f"{half}x{height}+0+0"
-        right_width = width - half
-        return f"{right_width}x{height}+{half}+0"
+            return f"{left_width}x{height}+0+0"
+        return f"{right_width}x{height}+{left_width}+0"
 
     # Wiedergabe ----------------------------------------------------------
     def _play_item(
@@ -382,11 +453,28 @@ class PlayerService:
         except (FileNotFoundError, PermissionError, ValueError) as exc:
             LOGGER.warning("Datei %s/%s nicht verfügbar: %s", item.source, item.path, exc)
             return
+        display_label = f"{item.source}/{item.path}"
         if item.type == "video":
-            self._play_video(full_path, side=side, geometry=geometry)
+            self._play_video(
+                full_path,
+                side=side,
+                geometry=geometry,
+                source=item.source,
+                media_path=item.path,
+                display_label=display_label,
+            )
         else:
             duration = item.duration or self.config.playback.image_duration
-            self._show_image(full_path, duration, side=side, geometry=geometry)
+            self._show_image(
+                full_path,
+                duration,
+                side=side,
+                geometry=geometry,
+                source=item.source,
+                media_path=item.path,
+                display_label=display_label,
+                media_type=item.type,
+            )
 
     def _play_video(
         self,
@@ -394,19 +482,37 @@ class PlayerService:
         *,
         side: str = "primary",
         geometry: Optional[str] = None,
+        source: Optional[str] = None,
+        media_path: Optional[str] = None,
+        display_label: Optional[str] = None,
     ) -> None:
         player = self.config.playback.video_player
         LOGGER.info("Play video %s via %s", path, player)
         clear_secondary = side == "primary" and not self.config.playback.splitscreen_enabled
+        label = display_label or str(path)
         set_state(
-            str(path),
+            label,
             "playing",
             side=side,
             info_screen=False,
             info_manual=self._info_manual.is_set(),
-            secondary_item=None if clear_secondary else None,
-            secondary_status="stopped" if clear_secondary else None,
+            source=source,
+            media_path=media_path,
+            media_type="video",
+            preview_path=str(path),
         )
+        if clear_secondary:
+            set_state(
+                None,
+                "stopped",
+                side="secondary",
+                info_screen=False,
+                info_manual=self._info_manual.is_set(),
+                source=None,
+                media_path=None,
+                media_type=None,
+                preview_path=None,
+            )
         if player == "mpv":
             controller = self._controller_for_side(side, geometry)
             if not controller:
@@ -422,13 +528,15 @@ class PlayerService:
         else:
             subprocess.run([player, str(path)], check=False)
         set_state(
-            str(path),
+            label,
             "completed",
             side=side,
             info_screen=False,
             info_manual=self._info_manual.is_set(),
-            secondary_item=None if clear_secondary else None,
-            secondary_status="stopped" if clear_secondary else None,
+            source=source,
+            media_path=media_path,
+            media_type="video",
+            preview_path=str(path),
         )
 
     def _show_image(
@@ -439,6 +547,10 @@ class PlayerService:
         side: str = "primary",
         geometry: Optional[str] = None,
         end_status: str = "completed",
+        source: Optional[str] = None,
+        media_path: Optional[str] = None,
+        display_label: Optional[str] = None,
+        media_type: Optional[str] = None,
     ) -> None:
         duration = max(1, int(duration))
         processed_path, _ = self._prepare_image(path, side)
@@ -449,15 +561,31 @@ class PlayerService:
             self._safe_remove(previous)
 
         clear_secondary = side == "primary" and not self.config.playback.splitscreen_enabled
+        label = display_label or str(path)
+        media_kind = media_type or ("info" if end_status == "info" else "image")
         set_state(
-            str(path),
+            label,
             "playing",
             side=side,
             info_screen=False,
             info_manual=self._info_manual.is_set(),
-            secondary_item=None if clear_secondary else None,
-            secondary_status="stopped" if clear_secondary else None,
+            source=source,
+            media_path=media_path,
+            media_type=media_kind,
+            preview_path=str(processed_path),
         )
+        if clear_secondary:
+            set_state(
+                None,
+                "stopped",
+                side="secondary",
+                info_screen=False,
+                info_manual=self._info_manual.is_set(),
+                source=None,
+                media_path=None,
+                media_type=None,
+                preview_path=None,
+            )
 
         viewer = self.config.playback.image_viewer
         if viewer == "mpv":
@@ -488,13 +616,15 @@ class PlayerService:
         else:
             subprocess.run([viewer, str(processed_path)], check=False)
         set_state(
-            str(path),
+            label,
             end_status,
             side=side,
             info_screen=end_status == "info",
             info_manual=self._info_manual.is_set(),
-            secondary_item=None if clear_secondary else None,
-            secondary_status="stopped" if clear_secondary else None,
+            source=source,
+            media_path=media_path,
+            media_type=media_kind,
+            preview_path=str(processed_path),
         )
 
         if processed_path.exists() and self._is_temp_file(processed_path):
@@ -630,10 +760,13 @@ class PlayerService:
     def _target_size(self, side: str) -> Tuple[int, int]:
         width, height = self._parse_resolution()
         if self.config.playback.splitscreen_enabled and side in {"primary", "secondary"}:
-            half = width // 2
+            ratio = int(self.config.playback.splitscreen_ratio or 50)
+            ratio = max(10, min(90, ratio))
+            left_width = max(1, (width * ratio) // 100)
+            right_width = max(1, width - left_width)
             if side == "primary":
-                return max(1, half), height
-            return max(1, width - half), height
+                return left_width, height
+            return right_width, height
         return width, height
 
     def _parse_resolution(self) -> Tuple[int, int]:
@@ -723,14 +856,29 @@ class PlayerService:
             manual=manual,
             details=details,
         )
+        info_manual_flag = manual or self._info_manual.is_set()
+        label = f"system/{info_path.name}"
         set_state(
-            str(info_path),
+            label,
             "info",
             side="primary",
             info_screen=True,
-            info_manual=manual or self._info_manual.is_set(),
-            secondary_item=None,
-            secondary_status="stopped",
+            info_manual=info_manual_flag,
+            source="system",
+            media_path=info_path.name,
+            media_type="info",
+            preview_path=str(info_path),
+        )
+        set_state(
+            None,
+            "stopped",
+            side="secondary",
+            info_screen=True,
+            info_manual=info_manual_flag,
+            source=None,
+            media_path=None,
+            media_type=None,
+            preview_path=None,
         )
         self._show_image(
             info_path,
@@ -738,4 +886,8 @@ class PlayerService:
             side="primary",
             geometry=None,
             end_status="info",
+            source="system",
+            media_path=info_path.name,
+            display_label=label,
+            media_type="info",
         )

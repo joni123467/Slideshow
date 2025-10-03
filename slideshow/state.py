@@ -18,9 +18,17 @@ class PlaybackState:
     primary_item: Optional[str]
     primary_started_at: Optional[float]
     primary_status: str
+    primary_source: Optional[str]
+    primary_media_path: Optional[str]
+    primary_media_type: Optional[str]
+    primary_preview: Optional[str]
     secondary_item: Optional[str]
     secondary_started_at: Optional[float]
     secondary_status: str
+    secondary_source: Optional[str]
+    secondary_media_path: Optional[str]
+    secondary_media_type: Optional[str]
+    secondary_preview: Optional[str]
     info_screen: bool
     info_manual: bool
 
@@ -29,9 +37,17 @@ _state = PlaybackState(
     primary_item=None,
     primary_started_at=None,
     primary_status="stopped",
+    primary_source=None,
+    primary_media_path=None,
+    primary_media_type=None,
+    primary_preview=None,
     secondary_item=None,
     secondary_started_at=None,
     secondary_status="stopped",
+    secondary_source=None,
+    secondary_media_path=None,
+    secondary_media_type=None,
+    secondary_preview=None,
     info_screen=False,
     info_manual=False,
 )
@@ -48,9 +64,17 @@ def load_state() -> PlaybackState:
                 primary_item=data.get("primary_item", data.get("current_item")),
                 primary_started_at=data.get("primary_started_at", data.get("started_at")),
                 primary_status=data.get("primary_status", data.get("status", "stopped")),
+                primary_source=data.get("primary_source"),
+                primary_media_path=data.get("primary_media_path"),
+                primary_media_type=data.get("primary_media_type"),
+                primary_preview=data.get("primary_preview"),
                 secondary_item=data.get("secondary_item"),
                 secondary_started_at=data.get("secondary_started_at"),
                 secondary_status=data.get("secondary_status", "stopped"),
+                secondary_source=data.get("secondary_source"),
+                secondary_media_path=data.get("secondary_media_path"),
+                secondary_media_type=data.get("secondary_media_type"),
+                secondary_preview=data.get("secondary_preview"),
                 info_screen=data.get("info_screen", False),
                 info_manual=data.get("info_manual", False),
             )
@@ -71,8 +95,10 @@ def set_state(
     info_screen: bool = False,
     info_manual: bool = False,
     side: str = "primary",
-    secondary_item: Optional[str] = None,
-    secondary_status: Optional[str] = None,
+    source: Optional[str] = None,
+    media_path: Optional[str] = None,
+    media_type: Optional[str] = None,
+    preview_path: Optional[str] = None,
 ) -> PlaybackState:
     """Aktualisiert den Wiedergabestatus."""
 
@@ -83,16 +109,38 @@ def set_state(
             state.secondary_item = current_item
             state.secondary_status = status
             state.secondary_started_at = now if current_item else None
+            if current_item is None:
+                state.secondary_source = None
+                state.secondary_media_path = None
+                state.secondary_media_type = None
+                state.secondary_preview = None
+            else:
+                if source is not None:
+                    state.secondary_source = source
+                if media_path is not None:
+                    state.secondary_media_path = media_path
+                if media_type is not None:
+                    state.secondary_media_type = media_type
+                if preview_path is not None:
+                    state.secondary_preview = preview_path
         else:
             state.primary_item = current_item
             state.primary_status = status
             state.primary_started_at = now if current_item else None
-            if secondary_item is not None or secondary_status is not None:
-                state.secondary_item = secondary_item
-                state.secondary_status = secondary_status or (
-                    "stopped" if secondary_item is None else status
-                )
-                state.secondary_started_at = now if secondary_item else None
+            if current_item is None:
+                state.primary_source = None
+                state.primary_media_path = None
+                state.primary_media_type = None
+                state.primary_preview = None
+            else:
+                if source is not None:
+                    state.primary_source = source
+                if media_path is not None:
+                    state.primary_media_path = media_path
+                if media_type is not None:
+                    state.primary_media_type = media_type
+                if preview_path is not None:
+                    state.primary_preview = preview_path
         state.info_screen = info_screen
         state.info_manual = info_manual
         save_state(state)

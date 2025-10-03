@@ -18,17 +18,30 @@ Aktueller Wiedergabestatus.
   "primary_item": "Pfad/zur/datei.jpg",
   "primary_status": "playing",
   "primary_started_at": 1700000000.0,
+  "primary_source": "local",
+  "primary_media_path": "bilder/motiv.jpg",
+  "primary_media_type": "image",
+  "primary_preview": "/home/pi/.slideshow/cache/local/bilder/motiv.jpg",
+  "primary_preview_token": 1700000123,
+  "primary_preview_available": true,
   "secondary_item": null,
   "secondary_status": "stopped",
   "secondary_started_at": null,
+  "secondary_source": null,
+  "secondary_media_type": null,
+  "secondary_preview": null,
+  "secondary_preview_token": 0,
+  "secondary_preview_available": false,
   "info_screen": false,
   "info_manual": false,
   "service_status": "active",
-  "service_active": true
+  "service_active": true,
+  "version": "0.0.4",
+  "theme": "mid"
 }
 ```
 
-Das Feld `service_status` spiegelt den Rohwert von `systemctl is-active` wider, `service_active` ist ein boolesches Convenience-Feld.
+Das Feld `service_status` spiegelt den Rohwert von `systemctl is-active` wider, `service_active` ist ein boolesches Convenience-Feld. Die `*_preview`-Felder geben Pfadinformationen (falls verfügbar) und einen Cache-Busting-Zeitstempel an, sodass Clients gezielt Vorschaubilder nachladen können.
 
 ### `GET /api/config`
 
@@ -102,6 +115,10 @@ Entfernt eine Quelle (die lokale Standardquelle ist geschützt).
 ### `GET /media/preview/<source>/<path>`
 
 Liefert ein kleines JPEG-Vorschaubild für Bilddateien einer Quelle. Für andere Dateitypen wird HTTP 415 zurückgegeben. Der Endpunkt ist authentifizierungspflichtig und hauptsächlich für die Dashboard-Anzeige gedacht.
+
+### `GET /logs/<name>/download`
+
+Lädt eine komplette Logdatei als Text herunter. Der Parameter `<name>` entspricht einem Schlüssel aus der Logauswahl des System-Tabs (`app`, `player`, `media`, `network`, `system`).
 
 ## Systemverwaltung
 

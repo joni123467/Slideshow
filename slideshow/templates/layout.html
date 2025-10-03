@@ -6,7 +6,7 @@
     <title>{% block title %}Slideshow{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
-  <body>
+  <body class="theme-{{ current_theme or 'mid' }}">
     <header class="topbar">
       <h1>Slideshow Steuerung</h1>
       <div class="version">Version {{ slideshow_version }}</div>

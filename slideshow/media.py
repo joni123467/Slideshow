@@ -534,7 +534,28 @@ class MediaManager:
         if not base.exists():
             LOGGER.warning("Verzeichnis %s existiert nicht", base)
             return []
-        for file in sorted(base.rglob("*")):
+        if base.is_file():
+            item_type = self.detect_item_type(base.name)
+            if not item_type:
+                return []
+            try:
+                relative = base.relative_to(source_root)
+            except ValueError:
+                relative = pathlib.Path(base.name)
+            items.append(
+                PlaylistItem(
+                    source=source.name,
+                    path=str(relative),
+                    type=item_type,
+                )
+            )
+            return items
+        try:
+            iterator = base.rglob("*")
+        except NotADirectoryError:
+            LOGGER.warning("Pfad %s konnte nicht durchsucht werden", base)
+            return items
+        for file in sorted(iterator):
             if file.is_dir():
                 continue
             item_type = self.detect_item_type(file.name)

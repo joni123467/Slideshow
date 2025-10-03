@@ -76,6 +76,7 @@ DEFAULT_CONFIG = {
         "splitscreen_left_path": "",
         "splitscreen_right_source": None,
         "splitscreen_right_path": "",
+        "splitscreen_ratio": 50,
     },
     "network": {
         "hostname": None,
@@ -90,6 +91,9 @@ DEFAULT_CONFIG = {
     "server": {
         "bind": "0.0.0.0",
         "port": 8080,
+    },
+    "ui": {
+        "theme": "mid",
     },
 }
 
@@ -142,6 +146,7 @@ class PlaybackConfig:
     splitscreen_left_path: str
     splitscreen_right_source: Optional[str]
     splitscreen_right_path: str
+    splitscreen_ratio: int
 
 
 @dataclasses.dataclass
@@ -151,12 +156,18 @@ class ServerConfig:
 
 
 @dataclasses.dataclass
+class UIConfig:
+    theme: str
+
+
+@dataclasses.dataclass
 class AppConfig:
     media_sources: List[MediaSource]
     playlist: List[PlaylistItem]
     playback: PlaybackConfig
     network: NetworkConfig
     server: ServerConfig
+    ui: UIConfig
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -170,6 +181,9 @@ class AppConfig:
         playback_raw = dict(config["playback"])
         playback_raw.pop("video_backend", None)
         playback_raw.pop("image_backend", None)
+        ui_raw = dict(config.get("ui") or {})
+        ui_raw.setdefault("theme", DEFAULT_CONFIG["ui"]["theme"])
+
         instance = cls(
             media_sources=[
                 MediaSource(
@@ -186,6 +200,7 @@ class AppConfig:
             playback=PlaybackConfig(**playback_raw),
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
+            ui=UIConfig(**ui_raw),
         )
         instance.ensure_local_paths()
         return instance
@@ -197,6 +212,7 @@ class AppConfig:
             "playback": dataclasses.asdict(self.playback),
             "network": dataclasses.asdict(self.network),
             "server": dataclasses.asdict(self.server),
+            "ui": dataclasses.asdict(self.ui),
         }
         with _lock:
             CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
@@ -247,6 +263,42 @@ class AppConfig:
                 image_removed or "keine",
             )
             # Änderungen an der Konfiguration dauerhaft speichern, damit sie nicht erneut eingelesen werden.
+            self.save()
+            changed = False
+
+        transition = (self.playback.transition_type or "none").lower()
+        if transition == "slide":
+            transition = "slideleft"
+        valid_transitions = {
+            "none",
+            "fade",
+            "fadeblack",
+            "fadewhite",
+            "wipeleft",
+            "wiperight",
+            "wipeup",
+            "wipedown",
+            "slideleft",
+            "slideright",
+            "slideup",
+            "slidedown",
+        }
+        if transition not in valid_transitions:
+            transition = "none"
+        self.playback.transition_type = transition
+
+        ratio = int(self.playback.splitscreen_ratio or 50)
+        ratio = max(10, min(90, ratio))
+        if ratio != self.playback.splitscreen_ratio:
+            self.playback.splitscreen_ratio = ratio
+            changed = True
+
+        allowed_themes = {"light", "mid", "dark"}
+        if self.ui.theme not in allowed_themes:
+            self.ui.theme = "mid"
+            changed = True
+
+        if changed:
             self.save()
 
         transition = (self.playback.transition_type or "none").lower()

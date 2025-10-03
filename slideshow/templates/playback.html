@@ -72,6 +72,13 @@
         <label class="checkbox">
           <input type="checkbox" id="splitscreen-toggle" name="splitscreen_enabled" value="1" {% if config.playback.splitscreen_enabled %}checked{% endif %} /> Aktivieren
         </label>
+        <label class="split-ratio" {% if not config.playback.splitscreen_enabled %}hidden{% endif %}>
+          Aufteilung (links/rechts)
+          <div class="split-ratio__controls">
+            <input type="range" min="10" max="90" name="splitscreen_ratio" id="splitscreen-ratio" value="{{ config.playback.splitscreen_ratio }}" />
+            <span class="muted"><span id="splitscreen-ratio-label">{{ config.playback.splitscreen_ratio }}</span>% links</span>
+          </div>
+        </label>
         <div class="split-grid" {% if not config.playback.splitscreen_enabled %}hidden{% endif %}>
           <div>
             <h4>Linke Seite</h4>
@@ -114,15 +121,33 @@
   (function () {
     const toggle = document.getElementById('splitscreen-toggle');
     const grid = document.querySelector('.split-grid');
+    const ratioWrapper = document.querySelector('.split-ratio');
+    const ratioInput = document.getElementById('splitscreen-ratio');
+    const ratioLabel = document.getElementById('splitscreen-ratio-label');
     if (!toggle || !grid) {
       return;
     }
 
     const updateVisibility = () => {
       grid.hidden = !toggle.checked;
+      if (ratioWrapper) {
+        ratioWrapper.hidden = !toggle.checked;
+      }
+    };
+
+    const updateLabel = () => {
+      if (!ratioInput || !ratioLabel) {
+        return;
+      }
+      ratioLabel.textContent = ratioInput.value;
     };
 
     toggle.addEventListener('change', updateVisibility);
+    if (ratioInput) {
+      ratioInput.addEventListener('input', updateLabel);
+      ratioInput.addEventListener('change', updateLabel);
+      updateLabel();
+    }
     updateVisibility();
   })();
 </script>
