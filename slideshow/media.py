@@ -5,6 +5,8 @@ import logging
 import mimetypes
 import os
 import pathlib
+import shlex
+import shutil
 import subprocess
 from dataclasses import asdict
 from typing import Iterable, List, Optional
@@ -16,10 +18,34 @@ LOGGER = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
+
 
 class MediaManager:
     def __init__(self, config: AppConfig):
         self.config = config
+        helper_path = os.environ.get("SLIDESHOW_MOUNT_HELPER")
+        self.mount_helper = pathlib.Path(helper_path) if helper_path else DEFAULT_MOUNT_HELPER
+
+    def _run_mount_helper(self, *args: str) -> subprocess.CompletedProcess:
+        helper = self.mount_helper
+        if not helper.exists():
+            raise FileNotFoundError(f"Mount-Helfer {helper} nicht gefunden")
+        cmd = [str(helper)] + list(args)
+        if os.geteuid() != 0:
+            sudo = shutil.which("sudo")
+            if not sudo:
+                raise PermissionError("sudo ist nicht verfügbar, um den Mount-Helfer aufzurufen")
+            cmd = [sudo, "-n"] + cmd
+        LOGGER.debug("Starte Mount-Helfer: %s", " ".join(shlex.quote(part) for part in cmd))
+        result = subprocess.run(cmd, text=True, capture_output=True)
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            stdout = (result.stdout or "").strip()
+            message = stderr or stdout or "unbekannter Fehler"
+            raise RuntimeError(f"Mount-Helfer fehlgeschlagen ({result.returncode}): {message}")
+        return result
 
     # Quellenverwaltung -------------------------------------------------
     def list_sources(self) -> List[MediaSource]:
@@ -61,31 +87,45 @@ class MediaManager:
         mount_point.mkdir(parents=True, exist_ok=True)
         uid = os.getuid()
         gid = os.getgid()
-        vers = source.options.get("vers", "3.0")
+        vers = source.options.get("vers", "3.1.1")
         vers_option = vers if isinstance(vers, str) and vers.startswith("vers=") else f"vers={vers}"
-        cmd = [
-            "mount", "-t", "cifs",
-            f"//{source.options['server']}/{source.options['share']}",
-            str(mount_point),
-            "-o",
-            ",".join(filter(None, [
-                f"username={source.options.get('username', '')}",
-                f"password={password or ''}",
-                "rw",
-                f"uid={uid}",
-                f"gid={gid}",
-                "file_mode=0775",
-                "dir_mode=0775",
-                vers_option,
-            ]))
+        option_parts = ["rw",
+            f"uid={uid}",
+            f"gid={gid}",
+            "file_mode=0775",
+            "dir_mode=0775",
+            vers_option,
         ]
-        LOGGER.info("Mount SMB share: %s", " ".join(cmd))
-        subprocess.run(cmd, check=False)
+        username = source.options.get("username")
+        if username:
+            option_parts.insert(0, f"username={username}")
+            option_parts.insert(1, f"password={password or ''}")
+        elif password:
+            option_parts.insert(0, f"password={password}")
+        else:
+            option_parts.insert(0, "guest")
+        extra_options = source.options.get("options") or source.options.get("extra_options")
+        if isinstance(extra_options, str) and extra_options.strip():
+            option_parts.append(extra_options.strip())
+        elif isinstance(extra_options, (list, tuple)):
+            option_parts.extend(str(entry) for entry in extra_options if entry)
+
+        options = ",".join(part for part in option_parts if part)
+        share = f"//{source.options['server']}/{source.options['share']}"
+        LOGGER.info("Mount SMB share %s auf %s", share, mount_point)
+        try:
+            self._run_mount_helper("mount", share, str(mount_point), options)
+        except Exception as exc:
+            LOGGER.warning("Mount von %s fehlgeschlagen: %s", share, exc)
+            raise
 
     def unmount_source(self, source: MediaSource) -> None:
         if source.type != "smb":
             return
-        subprocess.run(["umount", source.path], check=False)
+        try:
+            self._run_mount_helper("umount", source.path)
+        except Exception as exc:
+            LOGGER.debug("Unmount von %s fehlgeschlagen: %s", source.path, exc)
 
     # Playlistverwaltung ------------------------------------------------
     def list_playlist(self) -> List[PlaylistItem]:

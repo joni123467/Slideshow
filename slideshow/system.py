@@ -146,9 +146,20 @@ class SystemManager:
     ) -> subprocess.CompletedProcess:
         if use_sudo and os.geteuid() != 0:
             sudo = shutil.which("sudo")
-            if sudo:
-                command = [sudo] + command
+            if not sudo:
+                raise RuntimeError("sudo ist nicht verfügbar, benötigte Rechte können nicht angefordert werden")
+            command = [sudo, "-n"] + command
         LOGGER.info("Starte Befehl: %s", " ".join(command))
+        run_kwargs = {"check": check, "text": True}
         if capture:
-            return subprocess.run(command, check=check, text=True, capture_output=True)
-        return subprocess.run(command, check=check, text=True)
+            run_kwargs["capture_output"] = True
+        try:
+            return subprocess.run(command, **run_kwargs)
+        except subprocess.CalledProcessError as exc:
+            if use_sudo:
+                stderr = (exc.stderr or "").strip() if hasattr(exc, "stderr") else ""
+                if "password" in stderr.lower():
+                    LOGGER.error("sudo verweigerte den Zugriff: %s", stderr)
+                else:
+                    LOGGER.error("Befehl %s schlug fehl: %s", command, stderr or exc)
+            raise

@@ -82,6 +82,22 @@ cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
 
+chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
+
+SUDOERS_FILE="/etc/sudoers.d/slideshow"
+SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
+REBOOT_BIN="$(command -v reboot || echo /sbin/reboot)"
+cat <<SUDOERS > "$SUDOERS_FILE"
+$USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/update.sh *
+$USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/mount_smb.sh *
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN is-active slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN stop slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart slideshow.service
+$USER_NAME ALL=(root) NOPASSWD: $REBOOT_BIN
+SUDOERS
+chmod 440 "$SUDOERS_FILE"
+
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --upgrade pip
 if [[ -f "$APP_DIR/pyproject.toml" ]]; then

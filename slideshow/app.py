@@ -279,7 +279,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         try:
             system_manager.update(branch)
             flash(f"Update auf Branch {branch} gestartet", "success")
-        except subprocess.CalledProcessError as exc:
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
             LOGGER.exception("Update fehlgeschlagen")
             flash(f"Update fehlgeschlagen: {exc}", "danger")
         except ValueError as exc:
@@ -292,7 +292,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         try:
             system_manager.control_service(action)
             flash(f"Service {action} ausgeführt", "success")
-        except (subprocess.CalledProcessError, ValueError) as exc:
+        except (subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
             LOGGER.exception("Serviceaktion fehlgeschlagen")
             flash(f"Serviceaktion fehlgeschlagen: {exc}", "danger")
         return redirect(url_for("dashboard"))
@@ -303,7 +303,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         try:
             system_manager.reboot()
             flash("Neustart ausgelöst", "warning")
-        except subprocess.CalledProcessError as exc:
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
             LOGGER.exception("Neustart fehlgeschlagen")
             flash(f"Neustart fehlgeschlagen: {exc}", "danger")
         return redirect(url_for("dashboard"))
