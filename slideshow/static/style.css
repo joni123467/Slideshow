@@ -454,6 +454,14 @@ form {
   margin: 0 0 0.5rem 0;
 }
 
+.playlist-preview__split h3 {
+  margin-top: 0;
+}
+
+.playlist-preview__split .table-wrapper {
+  margin-top: 0.5rem;
+}
+
 .split-ratio {
   display: flex;
   flex-direction: column;

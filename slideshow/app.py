@@ -27,7 +27,7 @@ from flask_login import LoginManager, current_user, login_required, login_user, 
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig, export_config_bundle, import_config_bundle
+from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
 from .logging_config import available_logs
 from .media import MediaManager
 from .network import NetworkManager
@@ -156,11 +156,22 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     def dashboard():
         state = get_state()
         playlist_preview = media_manager.build_playlist()
+        split_left: List[PlaylistItem] = []
+        split_right: List[PlaylistItem] = []
+        if cfg.playback.splitscreen_enabled:
+            split_left, split_right = media_manager.build_splitscreen_playlists(
+                cfg.playback.splitscreen_left_source,
+                cfg.playback.splitscreen_left_path,
+                cfg.playback.splitscreen_right_source,
+                cfg.playback.splitscreen_right_path,
+            )
         service_status = system_manager.service_status()
         return render_template(
             "dashboard.html",
             state=state,
             playlist=playlist_preview,
+            splitscreen_left=split_left,
+            splitscreen_right=split_right,
             config=cfg,
             service_status=service_status,
             service_active=service_active(service_status),
@@ -287,10 +298,11 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             share_opt = source.options.get("share")
             subpath_value = request.form.get("subpath") if request.form else source.subpath
             if server_opt and share_opt:
-                smb_prefill = f"smb://{server_opt}/{share_opt}"
+                smb_prefill = "\\\\" + str(server_opt)
+                smb_prefill += "\\" + str(share_opt)
                 normalized_sub = (subpath_value or "").replace("\\", "/").strip("/")
                 if normalized_sub:
-                    smb_prefill = f"{smb_prefill.rstrip('/')}/{normalized_sub}"
+                    smb_prefill = smb_prefill.rstrip("\\/") + "\\" + normalized_sub.replace("/", "\\")
             else:
                 smb_prefill = ""
         return render_template("edit_source.html", source=source, smb_prefill=smb_prefill or "")
@@ -636,11 +648,16 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/system/update", methods=["POST"])
     @pam_required
     def system_update():
-        branch = request.form.get("branch") or system_manager.current_branch() or "main"
+        branch = (request.form.get("branch") or "").strip()
+        if not branch:
+            branch = system_manager.current_branch() or "main"
         try:
             system_manager.update(branch)
-            flash(f"Update auf Branch {branch} gestartet", "success")
-        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            flash(
+                f"Update auf Branch {branch} gestartet. Details siehe update.log im System-Tab.",
+                "success",
+            )
+        except (subprocess.CalledProcessError, RuntimeError, OSError) as exc:
             LOGGER.exception("Update fehlgeschlagen")
             flash(f"Update fehlgeschlagen: {exc}", "danger")
         except ValueError as exc:

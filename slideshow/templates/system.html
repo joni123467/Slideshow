@@ -21,6 +21,7 @@
       <button type="submit">Update starten</button>
     </form>
     <p class="muted">Aktueller Branch: <strong>{{ current_branch or 'unbekannt' }}</strong></p>
+    <p class="muted">Der Ablauf wird in <code>update.log</code> protokolliert und kann unten im Bereich „Protokolle“ eingesehen werden.</p>
     {% else %}
     <p class="muted">Git-Updates stehen in dieser Installation nicht zur Verfügung. Stelle sicher, dass das Repository über Git installiert wurde{% if fallback_repo %} oder prüfe die veröffentlichten Versionen unter <a href="https://github.com/{{ fallback_repo }}/branches" target="_blank" rel="noopener">GitHub</a>{% endif %}.</p>
     {% endif %}
