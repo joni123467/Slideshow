@@ -113,6 +113,9 @@ class SystemManager:
     def reboot(self) -> subprocess.CompletedProcess:
         return self._run(["reboot"], use_sudo=True)
 
+    def shutdown(self) -> subprocess.CompletedProcess:
+        return self._run(["poweroff"], use_sudo=True)
+
     # Logging ---------------------------------------------------------
     def available_logs(self) -> Dict[str, pathlib.Path]:
         from .logging_config import available_logs as logging_available

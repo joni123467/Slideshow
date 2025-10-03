@@ -7,6 +7,7 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 - **Automatisierte Wiedergabe** von Bildern und Videos über `mpv` (optional `feh` bzw. `omxplayer`), inklusive Infobildschirm bei Leerlauf.
 - **Flexible Bilddarstellung**: Bilddauer, Skalierung (einpassen, strecken, Originalgröße), Rotation und Übergänge (Fade oder Slide) werden im Webinterface eingestellt.
 - **Mehrere Medienquellen**: lokale Ordner oder SMB/CIFS-Freigaben, die automatisch eingehängt und in regelmäßigen Abständen gescannt werden.
+- **Komfortable SMB-Einrichtung**: Freigaben lassen sich direkt per UNC-Pfad (z. B. `\\192.168.150.10\Software\RPI-Test\1`) inklusive optionaler Domänen-Anmeldung hinzufügen.
 - **Splitscreen-Modus**: Optional lassen sich zwei Quellen parallel darstellen – z. B. Videos links und Bilder rechts – inklusive unabhängiger Wiedergabeschleifen.
 - **Automatischer Medienabgleich**: Neue Dateien in überwachten Ordnern werden ohne Neustart erkannt und automatisch in der Wiedergabe berücksichtigt.
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
@@ -98,7 +99,20 @@ Für lokale Entwicklung kann der Server manuell gestartet werden:
 python manage.py run
 ```
 
+Vor dem ersten Start sollten alle Python-Abhängigkeiten installiert werden – entweder über Poetry (`poetry install`) oder klassisch mit `pip install -r requirements.txt`. Dadurch steht unter anderem das Paket `flask-login` bereit, das für die Webanmeldung benötigt wird.
+
 Standardmäßig wird dabei der Flask-Debug-Server auf Port `8080` im lokalen Netzwerk erreichbar.
+
+### Datenablage konfigurieren
+
+Die Anwendung legt Konfigurations- und Statusdateien in einem beschreibbaren Datenverzeichnis ab. Standardmäßig wird dafür `~/.slideshow` verwendet. Über die Umgebungsvariable `SLIDESHOW_DATA_DIR` kann ein alternatives Verzeichnis angegeben werden:
+
+```bash
+export SLIDESHOW_DATA_DIR=/var/lib/slideshow
+python manage.py run
+```
+
+Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automatisch auf das Verzeichnis im Benutzerprofil (`~/.slideshow`) zurück.
 
 ## Sicherheitshinweise
 
