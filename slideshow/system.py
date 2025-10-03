@@ -54,11 +54,19 @@ class SystemManager:
     ):
         self.repo_dir = pathlib.Path(repo_dir)
         self.scripts_dir = pathlib.Path(scripts_dir)
+        self.install_branch_file = self.repo_dir / ".install_branch"
+        self.install_repo_file = self.repo_dir / ".install_repo"
         self.fallback_repo = fallback_repo
+        detected_repo = self._read_install_file(self.install_repo_file)
+        if detected_repo:
+            self.fallback_repo = detected_repo
 
     # Git/Deployment --------------------------------------------------
     def current_branch(self) -> Optional[str]:
         if not self._has_git_repo():
+            branch = self._read_install_file(self.install_branch_file)
+            if branch:
+                return branch
             LOGGER.debug("Kein Git-Repository vorhanden, aktueller Branch unbekannt")
             return None
         try:
@@ -220,3 +228,10 @@ class SystemManager:
             LOGGER.warning("Ungültige Antwort von GitHub: %s", exc)
             return []
         return [branch for branch in branches if branch]
+
+    def _read_install_file(self, path: pathlib.Path) -> Optional[str]:
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        return content or None

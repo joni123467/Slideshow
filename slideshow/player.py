@@ -517,7 +517,16 @@ class PlayerService:
 
         transition_map = {
             "fade": "fade",
-            "slide": "slideleft",
+            "fadeblack": "fadeblack",
+            "fadewhite": "fadewhite",
+            "wipeleft": "wipeleft",
+            "wiperight": "wiperight",
+            "wipeup": "wipeup",
+            "wipedown": "wipedown",
+            "slideleft": "slideleft",
+            "slideright": "slideright",
+            "slideup": "slideup",
+            "slidedown": "slidedown",
         }
         transition = transition_map.get(transition_type)
         if not transition:
@@ -561,7 +570,7 @@ class PlayerService:
             if not finished and self._should_interrupt():
                 controller.stop_playback()
         else:
-            viewer = self.config.playback.video_player if transition_type == "slide" else self.config.playback.image_viewer
+            viewer = self.config.playback.video_player
             cmd = [
                 "mpv" if viewer != "mpv" else viewer,
                 "--no-terminal",

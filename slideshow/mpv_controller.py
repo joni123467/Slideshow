@@ -115,7 +115,13 @@ class MpvController:
     def load_file(self, path: pathlib.Path) -> bool:
         if not self.ensure_running():
             return False
-        return self._command(["loadfile", str(path), "replace"]) is not None
+        response = self._command(["loadfile", str(path), "replace"])
+        if isinstance(response, dict) and response.get("error") == "success":
+            # Nach einem erfolgreichen Load sicherstellen, dass die Instanz
+            # nicht im Pausenmodus verharrt.
+            self._command(["set_property", "pause", False])
+            return True
+        return False
 
     def stop_playback(self) -> None:
         self._command(["stop"])
@@ -141,6 +147,13 @@ class MpvController:
             if not self.is_running():
                 return True
             if self.is_idle():
+                return True
+            if self._get_property_bool("eof-reached"):
+                # EOF erreicht – Wiedergabe stoppen, um den Zustand zurückzusetzen.
+                self.stop_playback()
+                return True
+            if self._get_property_bool("pause"):
+                # Bei aktivem keep-open signalisiert pause=True einen Abschluss.
                 return True
             time.sleep(0.2)
 
@@ -175,6 +188,12 @@ class MpvController:
         except json.JSONDecodeError:
             LOGGER.debug("Ungültige mpv-Antwort: %s", data)
             return None
+
+    def _get_property_bool(self, name: str) -> bool:
+        response = self._command(["get_property", name])
+        if isinstance(response, dict) and response.get("error") == "success":
+            return bool(response.get("data"))
+        return False
 
     def _wait_for_socket(self) -> bool:
         timeout = time.time() + 5

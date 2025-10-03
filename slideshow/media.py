@@ -9,8 +9,11 @@ import re
 import shlex
 import shutil
 import subprocess
+import io
 from dataclasses import asdict
 from typing import List, Optional
+
+from PIL import Image
 
 from .config import (
     AppConfig,
@@ -281,6 +284,119 @@ class MediaManager:
         self.config.media_sources = [src for src in self.config.media_sources if src.name != name]
         delete_secret(f"smb:{name}")
         self.config.save()
+
+    def update_source(
+        self,
+        name: str,
+        *,
+        new_name: Optional[str] = None,
+        smb_path: Optional[str] = None,
+        server: Optional[str] = None,
+        share: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        domain: Optional[str] = None,
+        subpath: Optional[str] = None,
+        auto_scan: Optional[bool] = None,
+    ) -> MediaSource:
+        source = self.config.get_source(name)
+        if not source:
+            raise ValueError(f"Unbekannte Quelle: {name}")
+        if source.type != "smb":
+            raise ValueError("Nur SMB-Quellen können bearbeitet werden")
+
+        target_name = new_name.strip() if new_name else name
+        if not target_name:
+            raise ValueError("Der Name darf nicht leer sein")
+        if target_name != name and self.config.get_source(target_name):
+            raise ValueError(f"Eine Quelle mit dem Namen {target_name} existiert bereits")
+
+        parsed_subpath = None
+        if smb_path:
+            server, share, parsed_subpath = parse_smb_location(smb_path)
+
+        normalized_subpath = _normalize_subpath(subpath or parsed_subpath or source.subpath)
+
+        if target_name != name:
+            for item in self.config.playlist:
+                if item.source == name:
+                    item.source = target_name
+            playback = self.config.playback
+            if playback.splitscreen_left_source == name:
+                playback.splitscreen_left_source = target_name
+            if playback.splitscreen_right_source == name:
+                playback.splitscreen_right_source = target_name
+            secret = load_secret(f"smb:{name}")
+            if secret:
+                save_secret(f"smb:{target_name}", secret)
+            delete_secret(f"smb:{name}")
+            for idx, existing in enumerate(self.config.media_sources):
+                if existing.name == name:
+                    self.config.media_sources[idx].name = target_name
+            source = self.config.get_source(target_name)
+            if not source:
+                raise RuntimeError("Aktualisierte Quelle nicht gefunden")
+            name = target_name
+
+        options = dict(source.options)
+        if server:
+            options["server"] = server
+        if share:
+            options["share"] = share
+
+        if username is not None:
+            username = username or None
+            if username:
+                options["username"] = username
+            else:
+                options.pop("username", None)
+        if domain is not None:
+            domain = domain or None
+            if domain:
+                options["domain"] = domain
+            else:
+                options.pop("domain", None)
+
+        if password is not None:
+            if password:
+                save_secret(f"smb:{name}", password)
+            else:
+                delete_secret(f"smb:{name}")
+
+        source.options = options
+        source.subpath = normalized_subpath
+        if auto_scan is not None:
+            source.auto_scan = bool(auto_scan)
+
+        self.config.save()
+        return source
+
+    def resolve_media_path(self, source_name: str, relative_path: str) -> pathlib.Path:
+        source = self.config.get_source(source_name)
+        if not source:
+            raise ValueError(f"Unbekannte Quelle: {source_name}")
+        self.mount_source(source)
+        base = pathlib.Path(source.path).resolve()
+        target = (base / pathlib.Path(relative_path)).resolve()
+        if base not in target.parents and target != base:
+            raise PermissionError("Pfad liegt außerhalb der Quelle")
+        if not target.exists() or not target.is_file():
+            raise FileNotFoundError(f"Datei {target} nicht gefunden")
+        return target
+
+    def generate_preview(self, source_name: str, relative_path: str, size: tuple[int, int] = (240, 135)) -> tuple[bytes, str]:
+        path = self.resolve_media_path(source_name, relative_path)
+        if path.suffix.lower() not in IMAGE_EXTENSIONS:
+            raise TypeError("Nur Bilder werden unterstützt")
+        try:
+            with Image.open(path) as img:  # type: ignore[arg-type]
+                img = img.convert("RGB")
+                img.thumbnail(size, Image.LANCZOS)
+                output = io.BytesIO()
+                img.save(output, format="JPEG", quality=85)
+        except OSError as exc:
+            raise ValueError(f"Konnte Vorschau nicht erzeugen: {exc}") from exc
+        return output.getvalue(), "image/jpeg"
 
     def mount_source(self, source: MediaSource) -> None:
         if source.type != "smb":
