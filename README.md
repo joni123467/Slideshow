@@ -44,8 +44,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
 ## Voraussetzungen
 
-- Raspberry Pi OS (Bookworm oder Bullseye) – wahlweise mit Desktop (X11) oder als Lite-Variante. Für headless-Geräte stellt der
-  Installer über `--drm` automatisch auf den DRM/Framebuffer-Modus um.
+- Raspberry Pi OS (Bookworm oder Bullseye) mit Desktop (X11). Eine laufende grafische Sitzung (`DISPLAY=:0`) ist für den Dienststart erforderlich.
 - Internetzugang, damit das Installationsskript Repository und Pakete aus dem Netz beziehen kann.
 - Optional: SMB-Freigaben, falls Netzlaufwerke eingebunden werden sollen.
 
@@ -70,15 +69,8 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    sudo ./install.sh
    ```
 
-   Für Installationen ohne Desktop (Raspberry Pi OS Lite) empfiehlt sich der DRM-Modus:
-
-   ```bash
-   sudo ./install.sh --drm
-   ```
-
    Weitere Optionen:
 
-  - `--video-backend x11|drm` setzt das Backend explizit.
   - `--desktop-user <name>` hinterlegt direkt das Benutzerkonto, unter dem Dienst und Desktop laufen sollen (muss bereits existieren).
 
 3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der ausgewählte Benutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
@@ -135,16 +127,10 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 ### Zugriff auf die grafische Oberfläche
 
 - Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und benötigt Zugriff auf die laufende Sitzung (`DISPLAY=:0`). Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
-- Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden. Alternativ lässt sich die Anwendung ohne Desktop im DRM-Modus betreiben.
+- Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden.
 - Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
 - Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
-- Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, wird lediglich eine Warnung protokolliert – der Dienst startet weiter und versucht später erneut, das Display zu erreichen.
-
-### Headless- und DRM-Betrieb
-
-- Über `install.sh --drm` oder die Umgebungsvariable `SLIDESHOW_VIDEO_BACKEND=drm` richtet der Dienst automatisch den DRM-/Framebuffer-Modus ein. Eine Desktop-Sitzung ist dann nicht erforderlich; der Dienst läuft dennoch unter demselben Benutzer und nutzt `mpv --gpu-context=drm` für die Wiedergabe.
-- Die Wiedergabeeinstellungen im Webinterface enthalten Auswahlfelder für Video- und Bild-Backend (`auto`, `x11`, `drm`) sowie zusätzliche Argumentlisten. Im Automatikmodus erkennt die Anwendung anhand der gesetzten Umgebungsvariablen bzw. eines vorhandenen `DISPLAY`, welches Backend verwendet werden soll.
-- Für Desktop-Systeme wartet der systemd-Dienst beim Start auf eine erreichbare X11-Sitzung (`xset q`). Dadurch werden Timing-Probleme beim Booten vermieden, wenn der Display-Manager länger benötigt.
+- Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, schlägt der Dienststart fehl und verweist auf die fehlende Desktop-Sitzung.
 
 ### Updates ohne Git-Checkout
 
