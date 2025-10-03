@@ -4,6 +4,7 @@ set -euo pipefail
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
 BRANCH_FILE="$APP_DIR/.install_branch"
+REPO_FILE="$APP_DIR/.install_repo"
 BRANCH="${1:-}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -20,18 +21,37 @@ if [[ -z "$BRANCH" ]]; then
   exit 1
 fi
 
-echo "Aktualisiere Branch $BRANCH"
+if [[ -f "$REPO_FILE" ]]; then
+  REPO_SLUG=$(cat "$REPO_FILE")
+fi
+REPO_SLUG="${REPO_SLUG:-${SLIDESHOW_REPO_SLUG:-joni123467/Slideshow}}"
 
-if [[ ! -d "$APP_DIR/.git" ]]; then
-  echo "Kein Git-Repository in $APP_DIR gefunden." >&2
+ARCHIVE_URL="https://codeload.github.com/${REPO_SLUG}/tar.gz/refs/heads/${BRANCH}"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+ARCHIVE_PATH="$TMP_DIR/source.tar.gz"
+
+echo "Lade ${ARCHIVE_URL}"
+if ! curl -fsSL "$ARCHIVE_URL" -o "$ARCHIVE_PATH"; then
+  echo "Konnte Quellarchiv nicht herunterladen." >&2
   exit 1
 fi
 
-(cd "$APP_DIR" && git fetch --all)
-(cd "$APP_DIR" && git checkout "$BRANCH")
-(cd "$APP_DIR" && git pull --ff-only origin "$BRANCH")
+tar -xzf "$ARCHIVE_PATH" -C "$TMP_DIR"
+SRC_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+if [[ -z "$SRC_DIR" || ! -d "$SRC_DIR" ]]; then
+  echo "Entpacktes Archiv nicht gefunden." >&2
+  exit 1
+fi
+
+rsync -a --delete \
+  --exclude='.venv' \
+  --exclude='.install_branch' \
+  --exclude='.install_repo' \
+  "$SRC_DIR"/ "$APP_DIR"/
 
 echo "$BRANCH" > "$BRANCH_FILE"
+echo "$REPO_SLUG" > "$REPO_FILE"
 
 if [[ -f "$APP_DIR/scripts/mount_smb.sh" ]]; then
   chmod +x "$APP_DIR/scripts/mount_smb.sh"
