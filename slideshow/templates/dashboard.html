@@ -1,4 +1,5 @@
 {% extends 'layout.html' %}
+{% set video_placeholder = url_for('static', filename='img/video-placeholder.svg') %}
 {% block title %}Übersicht – Slideshow{% endblock %}
 {% block content %}
 <section class="grid overview-grid">
@@ -21,6 +22,7 @@
       <div class="status-preview" data-preview="primary">
         <div class="status-preview__frame">
           <img data-preview-image="primary" src="{{ url_for('state_preview', side='primary') }}" alt="Vorschau primäre Anzeige" hidden />
+          <img data-preview-video="primary" src="{{ video_placeholder }}" alt="Video wird abgespielt" class="status-preview__fallback" hidden />
           <span data-preview-placeholder="primary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
         </div>
       </div>
@@ -35,6 +37,7 @@
       <div class="status-preview" data-preview="secondary">
         <div class="status-preview__frame">
           <img data-preview-image="secondary" src="{{ url_for('state_preview', side='secondary') }}" alt="Vorschau sekundäre Anzeige" hidden />
+          <img data-preview-video="secondary" src="{{ video_placeholder }}" alt="Video wird abgespielt" class="status-preview__fallback" hidden />
           <span data-preview-placeholder="secondary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
         </div>
       </div>
@@ -47,11 +50,119 @@
 
   <article>
     <h2>Playlist-Vorschau</h2>
-    <p class="muted">Die Wiedergabe wird automatisch aus allen aktiv überwachten Quellen aufgebaut. Neu hinzugefügte Dateien werden nach kurzer Zeit ohne manuelle Eingriffe angezeigt.</p>
+    {% if config.playback.splitscreen_enabled %}
+    <p class="muted">Die Splitscreen-Wiedergabe nutzt getrennte Listen. Die linke bzw. rechte Seite berücksichtigt jeweils den gewählten Unterordner. Über die Checkboxen lassen sich einzelne Medien temporär aus- oder einschalten.</p>
+    <div class="split-grid playlist-preview__split">
+      <div>
+        <h3>Linke Seite</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Anzeigen</th>
+                <th>#</th>
+                <th>Vorschau</th>
+                <th>Datei</th>
+                <th>Quelle</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in splitscreen_left %}
+              {% set key = item.source ~ '|' ~ item.path %}
+              {% set is_disabled = key in disabled_keys %}
+              <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+                <td>
+                  <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                    <input type="hidden" name="source" value="{{ item.source }}" />
+                    <input type="hidden" name="path" value="{{ item.path }}" />
+                    <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                    <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                    <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                  </form>
+                </td>
+                <td>{{ loop.index }}</td>
+                <td>
+                  {% if item.type == 'image' %}
+                  <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% elif item.type == 'video' %}
+                  <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
+                  {% else %}
+                  <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.path }}</td>
+                <td>{{ item.source }}</td>
+                <td>{{ item.type }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Rechte Seite</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Anzeigen</th>
+                <th>#</th>
+                <th>Vorschau</th>
+                <th>Datei</th>
+                <th>Quelle</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in splitscreen_right %}
+              {% set key = item.source ~ '|' ~ item.path %}
+              {% set is_disabled = key in disabled_keys %}
+              <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+                <td>
+                  <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                    <input type="hidden" name="source" value="{{ item.source }}" />
+                    <input type="hidden" name="path" value="{{ item.path }}" />
+                    <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                    <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                    <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                  </form>
+                </td>
+                <td>{{ loop.index }}</td>
+                <td>
+                  {% if item.type == 'image' %}
+                  <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% elif item.type == 'video' %}
+                  <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
+                  {% else %}
+                  <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.path }}</td>
+                <td>{{ item.source }}</td>
+                <td>{{ item.type }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">Keine Medien gefunden. Bitte Quellen oder Pfad prüfen.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="muted">Die Wiedergabe wird automatisch aus allen aktiv überwachten Quellen aufgebaut. Neu hinzugefügte Dateien werden nach kurzer Zeit ohne manuelle Eingriffe angezeigt. Über die Checkboxen lassen sich einzelne Medien temporär aus- oder einschalten.</p>
     <div class="table-wrapper">
       <table>
         <thead>
           <tr>
+            <th>Anzeigen</th>
             <th>#</th>
             <th>Vorschau</th>
             <th>Datei</th>
@@ -61,11 +172,24 @@
         </thead>
         <tbody>
           {% for item in playlist %}
-          <tr>
+          {% set key = item.source ~ '|' ~ item.path %}
+          {% set is_disabled = key in disabled_keys %}
+          <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
+            <td>
+              <form method="post" action="{{ url_for('toggle_playlist_item') }}" class="playlist-toggle">
+                <input type="hidden" name="source" value="{{ item.source }}" />
+                <input type="hidden" name="path" value="{{ item.path }}" />
+                <input type="hidden" name="next" value="{{ url_for('dashboard') }}" />
+                <input type="hidden" name="enabled" value="{{ 0 if is_disabled else 1 }}" />
+                <input type="checkbox" {% if not is_disabled %}checked{% endif %} onchange="const field=this.form.querySelector('[name=\"enabled\"]'); if(field){field.value=this.checked?'1':'0';} this.form.submit();" title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+              </form>
+            </td>
             <td>{{ loop.index }}</td>
             <td>
               {% if item.type == 'image' %}
               <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+              {% elif item.type == 'video' %}
+              <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
               {% else %}
               <span class="muted">—</span>
               {% endif %}
@@ -76,12 +200,13 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
+            <td colspan="6">Keine Medien gefunden. Bitte prüfen, ob die Quellen erreichbar sind.</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% endif %}
     <a class="button-link" href="{{ url_for('media_settings') }}">Quellen verwalten</a>
   </article>
 </section>
@@ -120,6 +245,10 @@
       primary: "{{ url_for('state_preview', side='primary') }}",
       secondary: "{{ url_for('state_preview', side='secondary') }}",
     };
+    const previewVideoFallbacks = {
+      primary: document.querySelector('[data-preview-video="primary"]'),
+      secondary: document.querySelector('[data-preview-video="secondary"]'),
+    };
     const formatter = new Intl.DateTimeFormat('de-DE', {
       day: '2-digit',
       month: '2-digit',
@@ -152,6 +281,7 @@
     function updatePreview(side, available, token, mediaType) {
       const image = previewImages[side];
       const placeholder = previewPlaceholders[side];
+      const videoFallback = previewVideoFallbacks[side];
       if (!image || !placeholder) {
         return;
       }
@@ -159,10 +289,20 @@
         image.hidden = false;
         image.src = `${previewUrls[side]}?t=${token || 0}`;
         placeholder.hidden = true;
+        if (videoFallback) {
+          videoFallback.hidden = true;
+        }
+      } else if (mediaType === 'video' && videoFallback) {
+        image.hidden = true;
+        placeholder.hidden = true;
+        videoFallback.hidden = false;
       } else {
         image.hidden = true;
         placeholder.hidden = false;
-        placeholder.textContent = mediaType === 'video' ? 'Video in Wiedergabe' : 'Keine Vorschau verfügbar';
+        placeholder.textContent = 'Keine Vorschau verfügbar';
+        if (videoFallback) {
+          videoFallback.hidden = true;
+        }
       }
     }
 
