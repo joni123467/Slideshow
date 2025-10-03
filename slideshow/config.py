@@ -58,8 +58,6 @@ DEFAULT_CONFIG = {
         "image_duration": 10,
         "video_player": "mpv",
         "image_viewer": "mpv",
-        "video_backend": "auto",
-        "image_backend": "auto",
         "video_player_args": [],
         "image_viewer_args": [],
         "auto_start": True,
@@ -126,8 +124,6 @@ class PlaybackConfig:
     image_duration: int
     video_player: str
     image_viewer: str
-    video_backend: str
-    image_backend: str
     video_player_args: List[str]
     image_viewer_args: List[str]
     auto_start: bool
@@ -168,6 +164,9 @@ class AppConfig:
             with CONFIG_PATH.open("r", encoding="utf-8") as fh:
                 raw = yaml.safe_load(fh) or {}
         config = _merge_dict(DEFAULT_CONFIG, raw)
+        playback_raw = dict(config["playback"])
+        playback_raw.pop("video_backend", None)
+        playback_raw.pop("image_backend", None)
         instance = cls(
             media_sources=[
                 MediaSource(
@@ -181,7 +180,7 @@ class AppConfig:
                 for src in config["media_sources"]
             ],
             playlist=[PlaylistItem(**item) for item in config["playlist"]],
-            playback=PlaybackConfig(**config["playback"]),
+            playback=PlaybackConfig(**playback_raw),
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
         )
@@ -221,8 +220,6 @@ class AppConfig:
 
         self.playback.video_player_args = _normalize_str_list(self.playback.video_player_args)
         self.playback.image_viewer_args = _normalize_str_list(self.playback.image_viewer_args)
-        self.playback.video_backend = (self.playback.video_backend or "auto").lower()
-        self.playback.image_backend = (self.playback.image_backend or "auto").lower()
 
 
 def _normalize_str_list(value: Any) -> List[str]:

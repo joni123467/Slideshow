@@ -9,7 +9,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import os
 from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -330,7 +329,6 @@ class PlayerService:
             secondary_status="stopped" if clear_secondary else None,
         )
         if player == "mpv":
-            backend = self._resolve_backend(self.config.playback.video_backend, "SLIDESHOW_VIDEO_BACKEND")
             cmd = [
                 player,
                 "--no-terminal",
@@ -338,7 +336,7 @@ class PlayerService:
                 "--loop-file=no",
                 "--keep-open=no",
             ]
-            cmd.extend(self._mpv_backend_args(backend, geometry, media_type="video"))
+            cmd.extend(self._mpv_geometry_args(geometry))
             cmd.extend(self.config.playback.video_player_args)
             cmd.append(str(path))
             subprocess.run(cmd, check=False)
@@ -387,7 +385,6 @@ class PlayerService:
 
         viewer = self.config.playback.image_viewer
         if viewer == "mpv":
-            backend = self._resolve_backend(self.config.playback.image_backend, "SLIDESHOW_IMAGE_BACKEND")
             cmd = [
                 viewer,
                 "--no-terminal",
@@ -397,7 +394,7 @@ class PlayerService:
                 f"--image-display-duration={duration}",
                 "--terminate-on-last-frame=yes",
             ]
-            cmd.extend(self._mpv_backend_args(backend, geometry, media_type="image"))
+            cmd.extend(self._mpv_geometry_args(geometry))
             cmd.extend(self.config.playback.image_viewer_args)
             cmd.append(str(processed_path))
             subprocess.run(cmd, check=False)
@@ -497,10 +494,7 @@ class PlayerService:
             "--keep-open=no",
             "--terminate-on-last-frame=yes",
         ]
-        if geometry:
-            cmd.append(f"--geometry={geometry}")
-        else:
-            cmd.append("--fullscreen")
+        cmd.extend(self._mpv_geometry_args(geometry))
         cmd.append(str(output))
         subprocess.run(cmd, check=False)
         self._safe_remove(output)
@@ -582,44 +576,12 @@ class PlayerService:
             except Exception:
                 LOGGER.debug("Konnte temporäres Verzeichnis nicht entfernen")
 
-    def _resolve_backend(self, configured: Optional[str], env_var: str) -> str:
-        value = (configured or "auto").strip().lower()
-        if value == "auto":
-            env_value = os.environ.get(env_var)
-            if env_value:
-                value = env_value.strip().lower()
-        if value == "auto":
-            value = "x11" if os.environ.get("DISPLAY") else "drm"
-        if value not in {"x11", "drm"}:
-            LOGGER.debug("Unbekanntes Backend %s, Standard 'x11' wird verwendet", value)
-            return "x11"
-        return value
-
-    def _mpv_backend_args(
-        self,
-        backend: str,
-        geometry: Optional[str],
-        *,
-        media_type: str,
-    ) -> List[str]:
-        args: List[str] = []
-        if backend == "x11":
-            args.append("--force-window=yes")
-            if geometry:
-                args.append(f"--geometry={geometry}")
-            else:
-                args.append("--fullscreen")
-        elif backend == "drm":
-            args.extend(["--vo=gpu", "--gpu-context=drm", "--hwdec=auto"])
-            if not geometry:
-                args.append("--fullscreen")
-            elif media_type == "video":
-                LOGGER.debug("DRM-Modus ignoriert Geometrie %s", geometry)
+    def _mpv_geometry_args(self, geometry: Optional[str]) -> List[str]:
+        args: List[str] = ["--force-window=yes"]
+        if geometry:
+            args.append(f"--geometry={geometry}")
         else:
-            if geometry:
-                args.append(f"--geometry={geometry}")
-            else:
-                args.append("--fullscreen")
+            args.append("--fullscreen")
         return args
 
     def _display_info_screen(self, manual: bool) -> None:
