@@ -73,6 +73,17 @@ fi
 
 echo "$USER_NAME:$USER_PASSWORD" | chpasswd
 
+USER_UID="$(id -u "$USER_NAME")"
+SERVICE_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+if [[ -z "$SERVICE_HOME" ]]; then
+  echo "Konnte Home-Verzeichnis für $USER_NAME nicht bestimmen." >&2
+  exit 1
+fi
+
+DEFAULT_DESKTOP_USER="${SLIDESHOW_DESKTOP_USER:-${SUDO_USER:-}}"
+read -rp "Desktop-Benutzer für Anzeige [$DEFAULT_DESKTOP_USER]: " DESKTOP_USER_INPUT
+DESKTOP_USER="${DESKTOP_USER_INPUT:-$DEFAULT_DESKTOP_USER}"
+
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 
@@ -87,6 +98,7 @@ chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/nul
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
 REBOOT_BIN="$(command -v reboot || echo /sbin/reboot)"
+POWEROFF_BIN="$(command -v poweroff || echo /sbin/poweroff)"
 cat <<SUDOERS > "$SUDOERS_FILE"
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/update.sh *
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/mount_smb.sh *
@@ -95,6 +107,7 @@ $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN stop slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $REBOOT_BIN
+$USER_NAME ALL=(root) NOPASSWD: $POWEROFF_BIN
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
 
@@ -107,18 +120,57 @@ elif [[ -f "$APP_DIR/requirements.txt" ]]; then
   "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 fi
 
+DESKTOP_HOME=""
+XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
+XAUTHORITY_WARNING=0
+if [[ -n "$DESKTOP_USER" ]]; then
+  DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
+  if [[ -z "$DESKTOP_HOME" ]]; then
+    echo "Hinweis: Desktop-Benutzer $DESKTOP_USER wurde nicht gefunden."
+    DESKTOP_USER=""
+  elif [[ -f "$DESKTOP_HOME/.Xauthority" ]]; then
+    install -m 600 -o "$USER_NAME" -g "$USER_NAME" "$DESKTOP_HOME/.Xauthority" "$XAUTHORITY_PATH"
+    echo "Übernehme Xauthority von $DESKTOP_USER nach $XAUTHORITY_PATH"
+  else
+    echo "WARNUNG: Keine .Xauthority bei $DESKTOP_USER gefunden."
+    XAUTHORITY_WARNING=1
+  fi
+fi
+
+if [[ ! -f "$XAUTHORITY_PATH" ]]; then
+  XAUTHORITY_WARNING=1
+fi
+
+RUNTIME_DIR="/run/user/$USER_UID"
+if ! install -d -m 0700 -o "$USER_NAME" -g "$USER_NAME" "$RUNTIME_DIR"; then
+  echo "WARNUNG: Konnte $RUNTIME_DIR nicht anlegen."
+fi
+
+TMPFILES_CONF="/etc/tmpfiles.d/slideshow.conf"
+cat <<TMPFILES > "$TMPFILES_CONF"
+d $RUNTIME_DIR 0700 $USER_NAME $USER_NAME -
+TMPFILES
+if ! systemd-tmpfiles --create "$TMPFILES_CONF"; then
+  echo "WARNUNG: systemd-tmpfiles konnte $RUNTIME_DIR nicht vorbereiten."
+fi
+
 cat <<SERVICE > "$SERVICE_FILE"
 [Unit]
 Description=Slideshow Service
-After=network.target
+After=network.target graphical.target
+Wants=graphical.target
 
 [Service]
 Type=simple
 User=$USER_NAME
 WorkingDirectory=$APP_DIR
 Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=$XAUTHORITY_PATH
+Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR
 ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -128,6 +180,10 @@ systemctl daemon-reload
 systemctl enable --now slideshow.service
 
 chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
+
+if [[ "$XAUTHORITY_WARNING" -eq 1 ]]; then
+  echo "WARNUNG: Keine gültige Xauthority-Datei gefunden. Stellen Sie sicher, dass $USER_NAME Zugriff auf die grafische Sitzung hat (DISPLAY=:0)."
+fi
 
 cat <<INFO
 Installation abgeschlossen.

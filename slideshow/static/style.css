@@ -27,16 +27,23 @@ body {
   flex-wrap: wrap;
 }
 
-.topbar nav {
+.topbar .main-nav {
   display: flex;
   gap: 1rem;
 }
 
-.topbar nav a {
+.topbar .main-nav a {
   color: var(--fg);
-  margin-left: 1rem;
   text-decoration: none;
   font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.topbar .main-nav a.active,
+.topbar .main-nav a:hover {
+  background: rgba(59, 130, 246, 0.25);
 }
 
 .topbar .version {
@@ -53,6 +60,14 @@ body {
   display: grid;
   gap: 1.5rem;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.system-grid {
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
 }
 
 article {
@@ -84,6 +99,10 @@ table {
   margin-bottom: 1rem;
 }
 
+.table-wrapper {
+  overflow-x: auto;
+}
+
 table th,
 table td {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -107,10 +126,16 @@ button {
   border: none;
   cursor: pointer;
   color: white;
+  transition: filter 0.2s ease;
 }
 
 button.danger {
   background: #e53e3e;
+}
+
+button:hover,
+.button-link:hover {
+  filter: brightness(1.1);
 }
 
 form {
@@ -151,6 +176,17 @@ form {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.85rem;
   white-space: pre-wrap;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.table-actions form {
+  margin: 0;
 }
 
 .inline-form label {
@@ -203,6 +239,32 @@ form {
 
 .checkbox input[type="checkbox"] {
   width: auto;
+}
+
+.muted {
+  color: rgba(248, 250, 252, 0.75);
+  font-size: 0.95rem;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(59, 130, 246, 0.35);
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+.hint-list {
+  padding-left: 1.2rem;
+}
+
+.hint-list li {
+  margin-bottom: 0.5rem;
 }
 
 .flash-container {

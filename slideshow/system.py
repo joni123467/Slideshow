@@ -7,7 +7,9 @@ import pathlib
 import shutil
 import socket
 import subprocess
-from typing import Dict, List
+import urllib.error
+import urllib.request
+from typing import Dict, List, Optional
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,31 +46,50 @@ def resolve_ip_addresses() -> List[str]:
 class SystemManager:
     """Kapselt Update-, Service- und Reboot-Operationen."""
 
-    def __init__(self, repo_dir: pathlib.Path = BASE_DIR, scripts_dir: pathlib.Path = SCRIPTS_DIR):
+    def __init__(
+        self,
+        repo_dir: pathlib.Path = BASE_DIR,
+        scripts_dir: pathlib.Path = SCRIPTS_DIR,
+        fallback_repo: Optional[str] = "joni123467/Slideshow",
+    ):
         self.repo_dir = pathlib.Path(repo_dir)
         self.scripts_dir = pathlib.Path(scripts_dir)
+        self.fallback_repo = fallback_repo
 
     # Git/Deployment --------------------------------------------------
-    def current_branch(self) -> str:
-        try:
-            result = subprocess.check_output(["git", "-C", str(self.repo_dir), "rev-parse", "--abbrev-ref", "HEAD"], text=True)
-            return result.strip()
-        except subprocess.CalledProcessError:
-            return ""
-
-    def list_branches(self, remote: str = "origin") -> List[str]:
+    def current_branch(self) -> Optional[str]:
+        if not self._has_git_repo():
+            LOGGER.debug("Kein Git-Repository vorhanden, aktueller Branch unbekannt")
+            return None
         try:
             result = subprocess.check_output(
-                ["git", "-C", str(self.repo_dir), "ls-remote", "--heads", remote], text=True
+                ["git", "-C", str(self.repo_dir), "rev-parse", "--abbrev-ref", "HEAD"],
+                text=True,
             )
-        except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
-            LOGGER.warning("Konnte Branches nicht abrufen: %s", exc)
+            return result.strip() or None
+        except subprocess.CalledProcessError as exc:
+            LOGGER.debug("Konnte aktuellen Branch nicht ermitteln: %s", exc)
+            return None
+
+    def list_branches(self, remote: str = "origin") -> List[str]:
+        if self._has_git_repo():
+            try:
+                result = subprocess.check_output(
+                    ["git", "-C", str(self.repo_dir), "ls-remote", "--heads", remote], text=True
+                )
+            except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
+                LOGGER.warning("Konnte Branches nicht abrufen: %s", exc)
+                return []
+            branches = []
+            for line in result.strip().splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1].startswith("refs/heads/"):
+                    branches.append(parts[1].split("/", 2)[-1])
+        else:
+            branches = self._fetch_remote_branches()
+
+        if not branches:
             return []
-        branches = []
-        for line in result.strip().splitlines():
-            parts = line.split()
-            if len(parts) == 2 and parts[1].startswith("refs/heads/"):
-                branches.append(parts[1].split("/", 2)[-1])
 
         unique_branches = sorted(set(branches))
 
@@ -93,6 +114,8 @@ class SystemManager:
         if script.exists():
             cmd = ["bash", str(script), branch]
         else:
+            if not self._has_git_repo():
+                raise RuntimeError("Keine Git-Installation vorhanden, Update nicht möglich")
             cmd = ["git", "-C", str(self.repo_dir), "pull", "origin", branch]
         return self._run(cmd, use_sudo=True)
 
@@ -112,6 +135,9 @@ class SystemManager:
 
     def reboot(self) -> subprocess.CompletedProcess:
         return self._run(["reboot"], use_sudo=True)
+
+    def shutdown(self) -> subprocess.CompletedProcess:
+        return self._run(["poweroff"], use_sudo=True)
 
     # Logging ---------------------------------------------------------
     def available_logs(self) -> Dict[str, pathlib.Path]:
@@ -163,3 +189,34 @@ class SystemManager:
                 else:
                     LOGGER.error("Befehl %s schlug fehl: %s", command, stderr or exc)
             raise
+
+    def _has_git_repo(self) -> bool:
+        git_dir = self.repo_dir / ".git"
+        if not git_dir.exists():
+            return False
+        if shutil.which("git") is None:
+            LOGGER.debug("git ist nicht installiert oder nicht im PATH")
+            return False
+        return True
+
+    def _fetch_remote_branches(self) -> List[str]:
+        if not self.fallback_repo:
+            return []
+        api_url = f"https://api.github.com/repos/{self.fallback_repo}/branches?per_page=100"
+        try:
+            with urllib.request.urlopen(api_url, timeout=10) as response:
+                if response.status != 200:
+                    LOGGER.debug("GitHub-Antwort %s für %s", response.status, api_url)
+                    return []
+                data = response.read()
+        except urllib.error.URLError as exc:  # pragma: no cover - Netzwerkfehler
+            LOGGER.warning("Konnte Branch-Liste nicht von GitHub laden: %s", exc)
+            return []
+        try:
+            import json
+
+            branches = [entry.get("name") for entry in json.loads(data) if isinstance(entry, dict)]
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Ungültige Antwort von GitHub: %s", exc)
+            return []
+        return [branch for branch in branches if branch]

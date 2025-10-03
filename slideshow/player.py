@@ -588,7 +588,33 @@ class PlayerService:
     def _display_info_screen(self, manual: bool) -> None:
         hostname = resolve_hostname()
         addresses = resolve_ip_addresses()
-        info_path = self._info_screen.render(hostname=hostname, addresses=addresses, manual=manual)
+        network = self.config.network
+        playback = self.config.playback
+        details = []
+        if network.interface:
+            details.append(f"Netzwerkinterface: {network.interface}")
+        mode = (network.mode or "dhcp").lower()
+        if mode == "static":
+            address = (network.static or {}).get("address") if network.static else None
+            router = (network.static or {}).get("router") if network.static else None
+            details.append(
+                "Netzwerkmodus: Statisch" + (f" ({address})" if address else "")
+            )
+            if router:
+                details.append(f"Gateway: {router}")
+        else:
+            details.append("Netzwerkmodus: DHCP")
+        details.append(f"Medienverzeichnis: {self.config.media_root}")
+        details.append(
+            f"Automatischer Start: {'Ja' if playback.auto_start else 'Nein'}"
+        )
+        details.append(f"Displayauflösung: {playback.display_resolution}")
+        info_path = self._info_screen.render(
+            hostname=hostname,
+            addresses=addresses,
+            manual=manual,
+            details=details,
+        )
         set_state(
             str(info_path),
             "info",
