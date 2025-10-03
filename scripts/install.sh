@@ -10,7 +10,7 @@ Verwendung: install.sh [--drm] [--video-backend NAME] [--desktop-user NAME]
 Optionen:
   --drm                Aktiviert die Framebuffer-/DRM-Ausgabe (kein Desktop erforderlich).
   --video-backend NAME Setzt das Backend explizit auf "x11" oder "drm".
-  --desktop-user NAME  Überschreibt den Desktop-Benutzer für die X11-Anbindung.
+  --desktop-user NAME  Legt das Benutzerkonto fest, unter dem Dienst und Desktop laufen.
   --help               Zeigt diese Hilfe an.
 EOF
 }
@@ -110,24 +110,38 @@ determine_latest_branch() {
 
 BRANCH="${SLIDESHOW_BRANCH:-$(determine_latest_branch "$REPO_URL")}" 
 
-read -rp "Dienstbenutzername [slideshow]: " USER_NAME_INPUT
-USER_NAME="${USER_NAME_INPUT:-slideshow}"
-read -srp "Passwort für $USER_NAME: " USER_PASSWORD
-echo ""
-read -srp "Passwort bestätigen: " USER_PASSWORD_CONFIRM
-echo ""
-if [[ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]]; then
-  echo "Passwörter stimmen nicht überein." >&2
+DEFAULT_RUN_USER="${SLIDESHOW_DESKTOP_USER:-${SUDO_USER:-}}"
+if [[ -n "$DESKTOP_USER_ARG" ]]; then
+  USER_NAME="$DESKTOP_USER_ARG"
+else
+  if [[ -n "$DEFAULT_RUN_USER" ]]; then
+    read -rp "Benutzerkonto für Dienststart [$DEFAULT_RUN_USER]: " USER_NAME_INPUT
+    USER_NAME="${USER_NAME_INPUT:-$DEFAULT_RUN_USER}"
+  else
+    read -rp "Benutzerkonto für Dienststart: " USER_NAME_INPUT
+    USER_NAME="${USER_NAME_INPUT:-}"
+  fi
+fi
+
+if [[ -z "$USER_NAME" ]]; then
+  echo "Es muss ein Benutzerkonto angegeben werden." >&2
   exit 1
 fi
 
-if id -u "$USER_NAME" >/dev/null 2>&1; then
-  echo "Benutzer $USER_NAME existiert bereits."
-else
-  useradd --create-home --system "$USER_NAME"
+if ! id -u "$USER_NAME" >/dev/null 2>&1; then
+  echo "Benutzer $USER_NAME wurde nicht gefunden. Bitte vorab anlegen und für die Desktop-Sitzung verwenden." >&2
+  exit 1
 fi
 
-echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+echo "Verwende bestehenden Benutzer $USER_NAME für Dienst und Desktop-Integration."
+
+DESKTOP_USER=""
+if [[ "$VIDEO_BACKEND" == "x11" ]]; then
+  DESKTOP_USER="$USER_NAME"
+fi
+if [[ "$VIDEO_BACKEND" == "drm" ]]; then
+  echo "DRM-Modus: Desktop-Integration optional, Dienst läuft trotzdem als $USER_NAME."
+fi
 
 GROUP_ADDED=()
 GROUP_MISSING=()
@@ -148,27 +162,6 @@ SERVICE_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 if [[ -z "$SERVICE_HOME" ]]; then
   echo "Konnte Home-Verzeichnis für $USER_NAME nicht bestimmen." >&2
   exit 1
-fi
-
-DEFAULT_DESKTOP_USER="${SLIDESHOW_DESKTOP_USER:-${SUDO_USER:-}}"
-if [[ -n "$DESKTOP_USER_ARG" ]]; then
-  DESKTOP_USER="$DESKTOP_USER_ARG"
-else
-  if [[ -n "$DEFAULT_DESKTOP_USER" ]]; then
-    read -rp "Desktop-Benutzer für Anzeige [$DEFAULT_DESKTOP_USER]: " DESKTOP_USER_INPUT
-    DESKTOP_USER="${DESKTOP_USER_INPUT:-$DEFAULT_DESKTOP_USER}"
-  else
-    if [[ "$VIDEO_BACKEND" == "drm" ]]; then
-      read -rp "Desktop-Benutzer für Anzeige (leer lassen für headless): " DESKTOP_USER_INPUT
-    else
-      read -rp "Desktop-Benutzer für Anzeige (leer = keiner): " DESKTOP_USER_INPUT
-    fi
-    DESKTOP_USER="${DESKTOP_USER_INPUT:-}"
-  fi
-fi
-
-if [[ "$VIDEO_BACKEND" == "drm" && -z "$DESKTOP_USER" ]]; then
-  echo "DRM-Modus ohne Desktop-Benutzer: X11-Anbindung wird übersprungen."
 fi
 
 rm -rf "$APP_DIR"
@@ -208,14 +201,16 @@ elif [[ -f "$APP_DIR/requirements.txt" ]]; then
 fi
 
 DESKTOP_HOME=""
-XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
+XAUTHORITY_PATH=""
 XAUTHORITY_SOURCE=""
 XAUTHORITY_WARNING=0
 if [[ -n "$DESKTOP_USER" ]]; then
+  XAUTHORITY_PATH="$SERVICE_HOME/.Xauthority"
   DESKTOP_HOME="$(getent passwd "$DESKTOP_USER" | cut -d: -f6)"
   if [[ -z "$DESKTOP_HOME" ]]; then
     echo "Hinweis: Desktop-Benutzer $DESKTOP_USER wurde nicht gefunden."
     DESKTOP_USER=""
+    XAUTHORITY_PATH=""
   elif [[ -f "$DESKTOP_HOME/.Xauthority" ]]; then
     XAUTHORITY_SOURCE="$DESKTOP_HOME/.Xauthority"
     echo "Xauthority von $DESKTOP_USER wird beim Dienststart synchronisiert."
@@ -286,7 +281,7 @@ chown -R "$USER_NAME":"$USER_NAME" "$APP_DIR"
 
 GROUP_SUMMARY="Keine zusätzlichen Gruppen ergänzt."
 if [[ ${#GROUP_ADDED[@]} -gt 0 ]]; then
-  GROUP_SUMMARY="Dienstbenutzer zu folgenden Geräte-Gruppen hinzugefügt: ${GROUP_ADDED[*]}"
+  GROUP_SUMMARY="Benutzerkonto zu folgenden Geräte-Gruppen hinzugefügt: ${GROUP_ADDED[*]}"
 fi
 GROUP_MISSING_NOTICE=""
 if [[ ${#GROUP_MISSING[@]} -gt 0 ]]; then
@@ -301,7 +296,7 @@ cat <<INFO
 Installation abgeschlossen.
 Repository: $REPO_URL
 Branch: $BRANCH
-Dienstbenutzer: $USER_NAME
+Dienst-/Desktop-Benutzer: $USER_NAME
 Video-Backend: $VIDEO_BACKEND
 Desktop-Anzeige: ${DESKTOP_USER:-keine}
 $GROUP_SUMMARY

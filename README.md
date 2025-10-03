@@ -13,7 +13,7 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
 - **Login über PAM**: Standardmäßig meldet sich der Benutzer mit seinem Raspberry-Pi-Benutzernamen und -Passwort an (z. B. `pi`).
 - **Netzwerkkonfiguration**: Hostname sowie IPv4-Konfiguration (DHCP oder statische Adresse) können aus der Oberfläche angepasst werden.
-- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches, Benutzeranlage und Aktivierung von SMB 3.1.1).
+- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches und Aktivierung von SMB 3.1.1).
 - **Infobildschirm**: Solange keine Playlist aktiv ist – oder auf Wunsch manuell – zeigt die Anwendung einen Bildschirm mit Hostnamen und IP-Adressen an.
 - **Systemaktionen**: Service-Start/-Stopp, Branch-Updates und Neustarts des Raspberry Pi können direkt im Webinterface ausgelöst werden.
 - **Versionsübersicht & Protokolle**: Anzeige der aktuell eingesetzten Version sowie Zugriff auf die wichtigsten Modul-Logs direkt in der Weboberfläche.
@@ -64,7 +64,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    curl -sSL https://raw.githubusercontent.com/joni123467/Slideshow/refs/heads/main/scripts/install.sh | sudo bash
    ```
 
-2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und legt dabei einen dedizierten Dienstbenutzer an. Damit die Hardwarebeschleunigung funktioniert, wird der Account – sofern die Gruppen existieren – direkt `video`, `render` und `input` hinzugefügt. Benutzername und Passwort können während der Installation angepasst werden:
+2. Das Skript richtet automatisch alle Abhängigkeiten (inklusive `mpv`, `ffmpeg`, `feh`, `cifs-utils`) ein, ermittelt den neuesten Branch im Format `version-x.y.z`, klont diesen unter `/opt/slideshow` und nutzt das vorhandene Desktop-Benutzerkonto als Dienstkonto. Standardmäßig wird der aktuell angemeldete `sudo`-Benutzer vorgeschlagen; das Konto muss bereits existieren. Es werden keine Passwörter abgefragt oder geändert, stattdessen ergänzt der Installer – sofern die Gruppen vorhanden sind – direkt `video`, `render` und `input`:
 
    ```bash
    sudo ./install.sh
@@ -78,10 +78,10 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
 
    Weitere Optionen:
 
-   - `--video-backend x11|drm` setzt das Backend explizit.
-   - `--desktop-user <name>` hinterlegt direkt den Benutzer, dessen X11-Sitzung verwendet werden soll.
+  - `--video-backend x11|drm` setzt das Backend explizit.
+  - `--desktop-user <name>` hinterlegt direkt das Benutzerkonto, unter dem Dienst und Desktop laufen sollen (muss bereits existieren).
 
-3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der Dienstbenutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
+3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der ausgewählte Benutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
 
 4. Die Weboberfläche ist standardmäßig unter `http://<IP-des-Pi>:8080` erreichbar.
 
@@ -134,15 +134,15 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 ### Zugriff auf die grafische Oberfläche
 
-- Der systemd-Dienst benötigt Zugriff auf die laufende Desktop-Sitzung (`DISPLAY=:0`). Während der Installation kann optional ein vorhandener Desktop-Benutzer angegeben werden. Dessen `.Xauthority` wird nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
+- Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und benötigt Zugriff auf die laufende Sitzung (`DISPLAY=:0`). Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
 - Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden. Alternativ lässt sich die Anwendung ohne Desktop im DRM-Modus betreiben.
-- Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript den Dienstnutzer automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
+- Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
 - Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
 - Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, wird lediglich eine Warnung protokolliert – der Dienst startet weiter und versucht später erneut, das Display zu erreichen.
 
 ### Headless- und DRM-Betrieb
 
-- Über `install.sh --drm` oder die Umgebungsvariable `SLIDESHOW_VIDEO_BACKEND=drm` richtet der Dienst automatisch den DRM-/Framebuffer-Modus ein. Ein Desktop-Benutzer ist dann nicht erforderlich; die Wiedergabe erfolgt direkt über `mpv --gpu-context=drm`.
+- Über `install.sh --drm` oder die Umgebungsvariable `SLIDESHOW_VIDEO_BACKEND=drm` richtet der Dienst automatisch den DRM-/Framebuffer-Modus ein. Eine Desktop-Sitzung ist dann nicht erforderlich; der Dienst läuft dennoch unter demselben Benutzer und nutzt `mpv --gpu-context=drm` für die Wiedergabe.
 - Die Wiedergabeeinstellungen im Webinterface enthalten Auswahlfelder für Video- und Bild-Backend (`auto`, `x11`, `drm`) sowie zusätzliche Argumentlisten. Im Automatikmodus erkennt die Anwendung anhand der gesetzten Umgebungsvariablen bzw. eines vorhandenen `DISPLAY`, welches Backend verwendet werden soll.
 - Für Desktop-Systeme wartet der systemd-Dienst beim Start auf eine erreichbare X11-Sitzung (`xset q`). Dadurch werden Timing-Probleme beim Booten vermieden, wenn der Display-Manager länger benötigt.
 
