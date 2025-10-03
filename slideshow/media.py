@@ -61,6 +61,35 @@ def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
     return server, share, _normalize_subpath(subpath)
 
 
+def _normalize_subpath(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    sanitized = str(value).replace("\\", "/").strip("/")
+    return sanitized or None
+
+
+def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
+    """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
+
+    if not raw_path:
+        raise ValueError("SMB-Pfad darf nicht leer sein")
+
+    cleaned = raw_path.strip()
+    if cleaned.lower().startswith("smb://"):
+        cleaned = cleaned[6:]
+    cleaned = cleaned.lstrip("\\/")
+    cleaned = cleaned.replace("\\", "/")
+    parts = [part for part in cleaned.split("/") if part]
+
+    if len(parts) < 2:
+        raise ValueError("SMB-Pfad muss Server und Freigabe enthalten")
+
+    server = parts[0]
+    share = parts[1]
+    subpath = "/".join(parts[2:]) if len(parts) > 2 else None
+    return server, share, _normalize_subpath(subpath)
+
+
 class MediaManager:
     def __init__(self, config: AppConfig):
         self.config = config
