@@ -226,6 +226,20 @@ article h2 {
   display: block;
 }
 
+.status-preview__fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--surface-alt);
+  padding: 1rem;
+}
+
+.status-preview__fallback[hidden] {
+  display: none;
+}
+
 .status-preview__placeholder {
   position: absolute;
   inset: 0;
@@ -571,6 +585,12 @@ table tr.playlist-disabled td {
   border-radius: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(15, 23, 42, 0.6);
+}
+
+.playlist-preview--video {
+  object-fit: contain;
+  background: rgba(15, 23, 42, 0.8);
+  padding: 0.25rem;
 }
 
 .status-block p strong {

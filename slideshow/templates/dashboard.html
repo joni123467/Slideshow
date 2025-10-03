@@ -1,4 +1,5 @@
 {% extends 'layout.html' %}
+{% set video_placeholder = url_for('static', filename='img/video-placeholder.svg') %}
 {% block title %}Übersicht – Slideshow{% endblock %}
 {% block content %}
 <section class="grid overview-grid">
@@ -21,6 +22,7 @@
       <div class="status-preview" data-preview="primary">
         <div class="status-preview__frame">
           <img data-preview-image="primary" src="{{ url_for('state_preview', side='primary') }}" alt="Vorschau primäre Anzeige" hidden />
+          <img data-preview-video="primary" src="{{ video_placeholder }}" alt="Video wird abgespielt" class="status-preview__fallback" hidden />
           <span data-preview-placeholder="primary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
         </div>
       </div>
@@ -35,6 +37,7 @@
       <div class="status-preview" data-preview="secondary">
         <div class="status-preview__frame">
           <img data-preview-image="secondary" src="{{ url_for('state_preview', side='secondary') }}" alt="Vorschau sekundäre Anzeige" hidden />
+          <img data-preview-video="secondary" src="{{ video_placeholder }}" alt="Video wird abgespielt" class="status-preview__fallback" hidden />
           <span data-preview-placeholder="secondary" class="status-preview__placeholder">Keine Vorschau verfügbar</span>
         </div>
       </div>
@@ -82,6 +85,8 @@
                 <td>
                   {% if item.type == 'image' %}
                   <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% elif item.type == 'video' %}
+                  <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
                   {% else %}
                   <span class="muted">—</span>
                   {% endif %}
@@ -131,6 +136,8 @@
                 <td>
                   {% if item.type == 'image' %}
                   <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+                  {% elif item.type == 'video' %}
+                  <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
                   {% else %}
                   <span class="muted">—</span>
                   {% endif %}
@@ -181,6 +188,8 @@
             <td>
               {% if item.type == 'image' %}
               <img class="playlist-preview" src="{{ url_for('media_preview', source=item.source, media_path=item.path) }}" alt="Vorschau von {{ item.path }}" loading="lazy" />
+              {% elif item.type == 'video' %}
+              <img class="playlist-preview playlist-preview--video" src="{{ video_placeholder }}" alt="Video Platzhalter" loading="lazy" />
               {% else %}
               <span class="muted">—</span>
               {% endif %}
@@ -236,6 +245,10 @@
       primary: "{{ url_for('state_preview', side='primary') }}",
       secondary: "{{ url_for('state_preview', side='secondary') }}",
     };
+    const previewVideoFallbacks = {
+      primary: document.querySelector('[data-preview-video="primary"]'),
+      secondary: document.querySelector('[data-preview-video="secondary"]'),
+    };
     const formatter = new Intl.DateTimeFormat('de-DE', {
       day: '2-digit',
       month: '2-digit',
@@ -268,6 +281,7 @@
     function updatePreview(side, available, token, mediaType) {
       const image = previewImages[side];
       const placeholder = previewPlaceholders[side];
+      const videoFallback = previewVideoFallbacks[side];
       if (!image || !placeholder) {
         return;
       }
@@ -275,10 +289,20 @@
         image.hidden = false;
         image.src = `${previewUrls[side]}?t=${token || 0}`;
         placeholder.hidden = true;
+        if (videoFallback) {
+          videoFallback.hidden = true;
+        }
+      } else if (mediaType === 'video' && videoFallback) {
+        image.hidden = true;
+        placeholder.hidden = true;
+        videoFallback.hidden = false;
       } else {
         image.hidden = true;
         placeholder.hidden = false;
-        placeholder.textContent = mediaType === 'video' ? 'Video in Wiedergabe' : 'Keine Vorschau verfügbar';
+        placeholder.textContent = 'Keine Vorschau verfügbar';
+        if (videoFallback) {
+          videoFallback.hidden = true;
+        }
       }
     }
 

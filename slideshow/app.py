@@ -197,9 +197,11 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         path = (request.form.get("path") or "").strip()
         enabled_flag = (request.form.get("enabled") or "").strip().lower()
         redirect_target = request.form.get("next") or url_for("dashboard")
-        if not source or not path:
+        normalized_pair = media_manager.normalize_media_entry(source, path)
+        if not normalized_pair:
             flash("Ungültiger Playlist-Eintrag", "danger")
             return redirect(redirect_target)
+        norm_source, norm_path = normalized_pair
 
         desired_enabled = enabled_flag in {"1", "true", "on", "yes"}
 
@@ -214,21 +216,33 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 else:
                     entry_source = str(getattr(entry, "source", "") or "").strip()
                     entry_path = str(getattr(entry, "path", "") or "").strip()
-                if entry_source and entry_path:
-                    normalized.append({"source": entry_source, "path": entry_path})
+                normalized_pair = media_manager.normalize_media_entry(entry_source, entry_path)
+                if normalized_pair:
+                    normalized.append({"source": normalized_pair[0], "path": normalized_pair[1]})
             return normalized
 
         previous = _normalize_entries(cfg.playback.disabled_media)
         updated: List[Dict[str, str]] = []
         found = False
         for entry in previous:
-            if entry["source"] == source and entry["path"] == path:
+            if entry["source"] == norm_source and entry["path"] == norm_path:
                 found = True
                 if desired_enabled:
                     continue
             updated.append(entry)
         if not desired_enabled and not found:
-            updated.append({"source": source, "path": path})
+            updated.append({"source": norm_source, "path": norm_path})
+
+        if updated:
+            unique: Dict[str, Dict[str, str]] = {}
+            deduped: List[Dict[str, str]] = []
+            for entry in updated:
+                key = f"{entry['source']}|{entry['path']}"
+                if key in unique:
+                    continue
+                unique[key] = entry
+                deduped.append(entry)
+            updated = deduped
 
         if updated != previous:
             cfg.playback.disabled_media = updated
@@ -317,7 +331,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             share = (request.form.get("share") or "").strip() or None
             username = (request.form.get("username") or "").strip()
             domain = (request.form.get("domain") or "").strip()
-            subpath = (request.form.get("subpath") or "").strip() or None
+            subpath_raw = request.form.get("subpath")
+            subpath = subpath_raw.strip() if subpath_raw is not None else None
             auto_scan = request.form.get("auto_scan") is not None
             password_raw = request.form.get("password")
             password_action = request.form.get("clear_password")

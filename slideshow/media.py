@@ -114,12 +114,28 @@ class MediaManager:
             else:
                 source = getattr(entry, "source", None)
                 path = getattr(entry, "path", None)
-            if source and path:
-                pairs.add((str(source), str(path)))
+            normalized = self.normalize_media_entry(source, path)
+            if normalized:
+                pairs.add(normalized)
         return pairs
 
     def disabled_media_keys(self) -> set[str]:
         return {f"{source}|{path}" for source, path in self._disabled_media_pairs()}
+
+    def normalize_media_entry(
+        self, source: Optional[str], path: Optional[str]
+    ) -> Optional[Tuple[str, str]]:
+        normalized_source = str(source or "").strip()
+        normalized_path_raw = str(path or "")
+        normalized_path = _normalize_subpath(normalized_path_raw)
+        if normalized_path is None:
+            normalized_path = normalized_path_raw.replace("\\", "/")
+            normalized_path = normalized_path.strip()
+            normalized_path = re.sub(r"/{2,}", "/", normalized_path)
+            normalized_path = normalized_path.strip("/")
+        if not normalized_source or not normalized_path:
+            return None
+        return normalized_source, normalized_path
 
     def _relative_from_filesystem(self, source: MediaSource, raw: str) -> Optional[str]:
         if not raw:
@@ -421,7 +437,15 @@ class MediaManager:
         if smb_path:
             server, share, parsed_subpath = parse_smb_location(smb_path)
 
-        normalized_subpath = _normalize_subpath(subpath or parsed_subpath or source.subpath)
+        normalized_subpath: Optional[str]
+        if subpath is not None:
+            normalized_subpath = _normalize_subpath(subpath)
+            if normalized_subpath is None and not source.subpath and parsed_subpath:
+                normalized_subpath = _normalize_subpath(parsed_subpath)
+        elif parsed_subpath is not None:
+            normalized_subpath = _normalize_subpath(parsed_subpath)
+        else:
+            normalized_subpath = source.subpath
 
         if target_name != name:
             for item in self.config.playlist:
