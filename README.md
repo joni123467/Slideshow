@@ -12,7 +12,7 @@ Dieses Projekt stellt eine komplett verwaltete Slideshow-Anwendung für den Rasp
 - **Weboberfläche** mit Dashboard zur Anzeige der aktuell wiedergegebenen Datei, Verwaltung der Playlist, Netzwerk- und Systemeinstellungen sowie Update- und Service-Steuerung.
 - **Login über PAM**: Standardmäßig meldet sich der Benutzer mit seinem Raspberry-Pi-Benutzernamen und -Passwort an (z. B. `pi`).
 - **Netzwerkkonfiguration**: Hostname sowie IPv4-Konfiguration (DHCP oder statische Adresse) können aus der Oberfläche angepasst werden.
-- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches, Benutzeranlage und Aktivierung von SMB 3.0).
+- **Installations- und Update-Skripte** für einen einfachen Rollout via `systemd`-Dienst (inklusive automatischem Branch-Checkout des neuesten Versions-Branches, Benutzeranlage und Aktivierung von SMB 3.1.1).
 - **Infobildschirm**: Solange keine Playlist aktiv ist – oder auf Wunsch manuell – zeigt die Anwendung einen Bildschirm mit Hostnamen und IP-Adressen an.
 - **Systemaktionen**: Service-Start/-Stopp, Branch-Updates und Neustarts des Raspberry Pi können direkt im Webinterface ausgelöst werden.
 - **Versionsübersicht & Protokolle**: Anzeige der aktuell eingesetzten Version sowie Zugriff auf die wichtigsten Modul-Logs direkt in der Weboberfläche.
@@ -36,6 +36,7 @@ slideshow/
 scripts/
   install.sh         # Installationsskript für Raspberry Pi
   update.sh          # Update-Skript zum Einspielen neuer Versionen
+  mount_smb.sh       # Root-Helferskript zum Ein- und Aushängen von SMB-Freigaben
 manage.py            # CLI-Helfer (z. B. zum Starten im Entwicklungsmodus)
 pyproject.toml       # Python-Abhängigkeiten (Poetry)
 ```
@@ -67,7 +68,7 @@ pyproject.toml       # Python-Abhängigkeiten (Poetry)
    sudo ./install.sh
    ```
 
-3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`.
+3. Nach erfolgreicher Installation läuft der Dienst als `slideshow.service`. Der Code liegt unter `/opt/slideshow`, ein virtuelles Python-Environment befindet sich in `/opt/slideshow/.venv`. Zusätzlich erzeugt der Installer einen Eintrag unter `/etc/sudoers.d/slideshow`, damit der Dienstbenutzer Updates, Dienststeuerung, Neustarts sowie das SMB-Helferskript ohne Passwort ausführen kann.
 
 4. Die Weboberfläche ist standardmäßig unter `http://<IP-des-Pi>:8080` erreichbar.
 
@@ -104,6 +105,7 @@ Standardmäßig wird dabei der Flask-Debug-Server auf Port `8080` im lokalen Net
 - Der Webzugang ist nur für authentifizierte Benutzer zugänglich. Die Authentifizierung nutzt das PAM-System des Betriebssystems.
 - Netzwerkänderungen erfordern Root-Rechte. Stellen Sie sicher, dass der Dienst mit ausreichenden Rechten ausgeführt wird.
 - SMB-Zugangsdaten werden verschlüsselt im Konfigurationsspeicher abgelegt.
+- Das Installationsskript legt gezielte `sudoers`-Regeln an, die ausschließlich das Update-Skript, das SMB-Helferskript, ausgewählte `systemctl`-Befehle sowie `reboot` ohne Passwort erlauben.
 
 ## Zukunftsperspektive
 
