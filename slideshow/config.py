@@ -7,7 +7,7 @@ import logging
 import os
 import pathlib
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -221,6 +221,26 @@ class AppConfig:
         self.playback.video_player_args = _normalize_str_list(self.playback.video_player_args)
         self.playback.image_viewer_args = _normalize_str_list(self.playback.image_viewer_args)
 
+        video_cleaned, video_removed = _purge_legacy_mpv_args(self.playback.video_player_args)
+        image_cleaned, image_removed = _purge_legacy_mpv_args(self.playback.image_viewer_args)
+
+        changed = False
+        if video_removed:
+            self.playback.video_player_args = video_cleaned
+            changed = True
+        if image_removed:
+            self.playback.image_viewer_args = image_cleaned
+            changed = True
+
+        if changed:
+            LOGGER.warning(
+                "Entferne veraltete DRM-Argumente aus mpv-Konfiguration (Video: %s, Bilder: %s)",
+                video_removed or "keine",
+                image_removed or "keine",
+            )
+            # Änderungen an der Konfiguration dauerhaft speichern, damit sie nicht erneut eingelesen werden.
+            self.save()
+
 
 def _normalize_str_list(value: Any) -> List[str]:
     if isinstance(value, (list, tuple)):
@@ -237,6 +257,63 @@ def _normalize_str_list(value: Any) -> List[str]:
         if text:
             return [text]
     return []
+
+
+def _purge_legacy_mpv_args(args: List[str]) -> Tuple[List[str], List[str]]:
+    """Entfernt Argumente, die ausschließlich für den früheren DRM-Modus benötigt wurden."""
+
+    legacy_single = {
+        "--gpu-context=drm",
+    }
+    legacy_pair_options = {
+        "--gpu-context": "drm",
+    }
+    legacy_prefix_equals = (
+        "--drm-mode",
+        "--drm-connector",
+    )
+    legacy_combo = {"--vo=gpu", "--hwdec=auto"}
+
+    cleaned: List[str] = []
+    removed: List[str] = []
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+
+        if arg in legacy_single:
+            removed.append(arg)
+        elif any(arg.startswith(prefix + "=") for prefix in legacy_prefix_equals):
+            removed.append(arg)
+        elif arg in legacy_pair_options:
+            expected_value = legacy_pair_options[arg]
+            if i + 1 < len(args) and args[i + 1] == expected_value:
+                removed.extend([arg, args[i + 1]])
+                i += 1
+            else:
+                # Entferne nur das Flag, wenn der erwartete Wert nicht direkt folgt.
+                removed.append(arg)
+        elif arg in legacy_prefix_equals:
+            removed.append(arg)
+            if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                removed.append(args[i + 1])
+                i += 1
+        else:
+            cleaned.append(arg)
+        i += 1
+
+    if legacy_combo.issubset(set(cleaned)):
+        combo_removed: List[str] = []
+        new_cleaned: List[str] = []
+        for item in cleaned:
+            if item in legacy_combo:
+                combo_removed.append(item)
+            else:
+                new_cleaned.append(item)
+        cleaned = new_cleaned
+        removed.extend(combo_removed)
+
+    return cleaned, removed
 
 
 def _merge_dict(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
