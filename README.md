@@ -126,11 +126,19 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 ### Zugriff auf die grafische Oberfläche
 
+<<<<<<< HEAD
 - Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und setzt `DISPLAY=:0` sowie `XAUTHORITY` automatisch auf dessen Home-Verzeichnis. Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht verändert.
 - Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden.
 - Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
 - Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
 - Vor dem Start erfolgt ein optionaler `xset q`-Aufruf. Dieser dient lediglich als Hinweis auf eine fehlende Desktop-Sitzung und verhindert den Dienststart nicht.
+=======
+- Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und benötigt Zugriff auf die laufende Sitzung (`DISPLAY=:0`). Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
+- Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden.
+- Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
+- Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
+- Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, schlägt der Dienststart fehl und verweist auf die fehlende Desktop-Sitzung.
+>>>>>>> main
 
 ### Updates ohne Git-Checkout
 

@@ -112,6 +112,11 @@ fi
 
 echo "Verwende bestehenden Benutzer $USER_NAME für Dienst und Desktop-Integration."
 
+<<<<<<< HEAD
+=======
+DESKTOP_USER="$USER_NAME"
+
+>>>>>>> main
 GROUP_ADDED=()
 GROUP_MISSING=()
 for supplemental_group in video render input; do
@@ -184,9 +189,13 @@ UNIT_INSTALL="WantedBy=graphical.target"
 SERVICE_ENV=(
   "Environment=PYTHONUNBUFFERED=1"
   "Environment=XDG_RUNTIME_DIR=$RUNTIME_DIR"
+<<<<<<< HEAD
   "Environment=DISPLAY=:0"
   "Environment=XAUTHORITY=$XAUTHORITY_PATH"
   "Environment=HOME=$SERVICE_HOME"
+=======
+  "Environment=SLIDESHOW_SERVICE_USER=$USER_NAME"
+>>>>>>> main
 )
 
 {
@@ -236,6 +245,10 @@ Installation abgeschlossen.
 Repository: $REPO_URL
 Branch: $BRANCH
 Dienst-/Desktop-Benutzer: $USER_NAME
+<<<<<<< HEAD
+=======
+Desktop-Anzeige: $DESKTOP_USER
+>>>>>>> main
 $GROUP_SUMMARY
 ${GROUP_MISSING_NOTICE:-}
 INFO
