@@ -15,6 +15,7 @@
             <th>Unterordner</th>
             <th>Automatisch</th>
             <th>Dateien</th>
+            <th>Aktionen</th>
           </tr>
         </thead>
         <tbody>
@@ -32,10 +33,29 @@
                 –
               {% endif %}
             </td>
+            <td>
+              <div class="table-actions">
+                <form method="post" action="{{ url_for('toggle_auto_scan', name=source.name) }}">
+                  {% if source.auto_scan %}
+                  <input type="hidden" name="enabled" value="0" />
+                  <button type="submit">Automatik deaktivieren</button>
+                  {% else %}
+                  <input type="hidden" name="enabled" value="1" />
+                  <button type="submit">Automatik aktivieren</button>
+                  {% endif %}
+                </form>
+                {% if source.type != 'local' %}
+                <form method="post" action="{{ url_for('delete_source', name=source.name) }}" onsubmit="return confirm('Quelle {{ source.name }} wirklich löschen?');">
+                  <input type="hidden" name="confirm" value="1" />
+                  <button type="submit" class="danger">Löschen</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="6">Keine Quellen konfiguriert.</td>
+            <td colspan="7">Keine Quellen konfiguriert.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -63,9 +83,10 @@
       </label>
       <label>Domäne (optional)
         <input type="text" name="domain" placeholder="MEINE-DOM" />
+        <small class="muted">Nur erforderlich, wenn die Anmeldung über eine Windows-Domäne erfolgt.</small>
       </label>
       <label>Benutzername (optional)
-        <input type="text" name="username" placeholder="domäne\\benutzer" />
+        <input type="text" name="username" placeholder="z. B. administrator" />
       </label>
       <label>Passwort
         <input type="password" name="password" />
