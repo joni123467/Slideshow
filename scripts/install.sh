@@ -36,6 +36,34 @@ done
 APP_DIR="/opt/slideshow"
 VENV_DIR="$APP_DIR/.venv"
 SERVICE_FILE="/etc/systemd/system/slideshow.service"
+RUN_USER_FILE="$APP_DIR/.run_user"
+LIGHTDM_AUTLOGIN_CONF="/etc/lightdm/lightdm.conf.d/50-slideshow-autologin.conf"
+
+configure_lightdm_autologin() {
+  local user="$1"
+  if [[ -d /etc/lightdm ]]; then
+    local conf_dir="$(dirname "$LIGHTDM_AUTLOGIN_CONF")"
+    mkdir -p "$conf_dir"
+    cat <<CONF > "$LIGHTDM_AUTLOGIN_CONF"
+[Seat:*]
+autologin-user=$user
+autologin-user-timeout=0
+autologin-session=lightdm-autologin
+CONF
+    echo "LightDM-Autologin für $user konfiguriert."
+  else
+    echo "Hinweis: LightDM wurde nicht gefunden, Autologin konnte nicht gesetzt werden." >&2
+  fi
+}
+
+enable_user_linger() {
+  local user="$1"
+  if command -v loginctl >/dev/null 2>&1; then
+    loginctl enable-linger "$user" || echo "Warnung: Konnte loginctl enable-linger für $user nicht setzen." >&2
+  else
+    echo "Hinweis: loginctl nicht gefunden, Linger konnte nicht gesetzt werden." >&2
+  fi
+}
 
 if [[ $EUID -ne 0 ]]; then
   echo "Dieses Skript muss als root ausgeführt werden." >&2
@@ -138,6 +166,8 @@ mkdir -p "$APP_DIR"
 
 git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
 
+printf '%s\n' "$USER_NAME" > "$RUN_USER_FILE"
+
 cat <<BRANCH > "$APP_DIR/.install_branch"
 $BRANCH
 BRANCH
@@ -214,12 +244,15 @@ SERVICE_ENV=(
   echo "ExecStartPre=/bin/sh -c 'DISPLAY=:0 XAUTHORITY=$XAUTHORITY_PATH xset q >/dev/null 2>&1 || true'"
   echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
   echo "ExecStartPost=/bin/sh -c 'echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet\" | systemd-cat -t slideshow'"
-  echo "Restart=on-failure"
+  echo "Restart=always"
   echo "RestartSec=5"
   echo ""
   echo "[Install]"
   echo "$UNIT_INSTALL"
 } > "$SERVICE_FILE"
+
+configure_lightdm_autologin "$USER_NAME"
+enable_user_linger "$USER_NAME"
 
 systemctl daemon-reload
 systemctl enable --now slideshow.service

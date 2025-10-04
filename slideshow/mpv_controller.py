@@ -151,8 +151,9 @@ class MpvController:
             if self.is_idle():
                 return True
             if self._get_property_bool("eof-reached"):
-                # EOF erreicht – Wiedergabe stoppen, um den Zustand zurückzusetzen.
-                self.stop_playback()
+                # EOF erreicht – mpv behält den letzten Frame bei, bis ein neuer
+                # Befehl eingeht. Kein explizites Stoppen, damit der Bildschirm
+                # sichtbar bleibt.
                 return True
             if self._get_property_bool("pause"):
                 # Bei aktivem keep-open signalisiert pause=True einen Abschluss.
