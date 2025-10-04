@@ -77,7 +77,11 @@ DEFAULT_CONFIG = {
         "splitscreen_right_source": None,
         "splitscreen_right_path": "",
         "splitscreen_ratio": 50,
-        "disabled_media": [],
+        "disabled_media": {
+            "fullscreen": [],
+            "splitscreen_left": [],
+            "splitscreen_right": [],
+        },
     },
     "network": {
         "hostname": None,
@@ -99,6 +103,46 @@ DEFAULT_CONFIG = {
 }
 
 _lock = threading.Lock()
+
+
+def _normalize_disabled_entry(entry) -> Optional[Dict[str, str]]:
+    """Bringt einen deaktivierten Playlist-Eintrag in ein konsistentes Format."""
+
+    if isinstance(entry, dict):
+        source = entry.get("source")
+        path = entry.get("path")
+    else:
+        source = getattr(entry, "source", None)
+        path = getattr(entry, "path", None)
+
+    source = str(source).strip() if source is not None else ""
+    path = str(path).strip() if path is not None else ""
+    if not source or not path:
+        return None
+    return {"source": source, "path": path}
+
+
+def _normalize_disabled_media(raw) -> Dict[str, List[Dict[str, str]]]:
+    """Sorgt dafür, dass deaktivierte Medien je Kontext korrekt vorliegen."""
+
+    contexts = ["fullscreen", "splitscreen_left", "splitscreen_right"]
+    normalized = {context: [] for context in contexts}
+
+    if isinstance(raw, dict):
+        for context in contexts:
+            entries = raw.get(context, []) or []
+            for entry in entries:
+                normalized_entry = _normalize_disabled_entry(entry)
+                if normalized_entry:
+                    normalized[context].append(normalized_entry)
+    else:
+        entries = raw or []
+        for entry in entries:
+            normalized_entry = _normalize_disabled_entry(entry)
+            if normalized_entry:
+                normalized["fullscreen"].append(normalized_entry)
+
+    return normalized
 
 
 @dataclasses.dataclass
@@ -148,7 +192,7 @@ class PlaybackConfig:
     splitscreen_right_source: Optional[str]
     splitscreen_right_path: str
     splitscreen_ratio: int
-    disabled_media: List[Dict[str, Any]]
+    disabled_media: Dict[str, List[Dict[str, Any]]]
 
 
 @dataclasses.dataclass
@@ -183,6 +227,9 @@ class AppConfig:
         playback_raw = dict(config["playback"])
         playback_raw.pop("video_backend", None)
         playback_raw.pop("image_backend", None)
+        playback_raw["disabled_media"] = _normalize_disabled_media(
+            playback_raw.get("disabled_media")
+        )
         ui_raw = dict(config.get("ui") or {})
         ui_raw.setdefault("theme", DEFAULT_CONFIG["ui"]["theme"])
 

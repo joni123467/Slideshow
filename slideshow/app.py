@@ -29,7 +29,12 @@ from . import __version__
 from .auth import PamAuthenticator, User
 from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
 from .logging_config import available_logs
-from .media import MediaManager
+from .media import (
+    MediaManager,
+    PLAYLIST_CONTEXT_FULLSCREEN,
+    PLAYLIST_CONTEXT_SPLIT_LEFT,
+    PLAYLIST_CONTEXT_SPLIT_RIGHT,
+)
 from .network import NetworkManager
 from .player import PlayerService
 from .state import get_state
@@ -166,7 +171,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def dashboard():
         state = get_state()
-        playlist_preview = media_manager.build_playlist()
+        playlist_preview = media_manager.build_playlist(include_disabled=True)
         split_left: List[PlaylistItem] = []
         split_right: List[PlaylistItem] = []
         if cfg.playback.splitscreen_enabled:
@@ -175,9 +180,10 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 cfg.playback.splitscreen_left_path,
                 cfg.playback.splitscreen_right_source,
                 cfg.playback.splitscreen_right_path,
+                include_disabled=True,
             )
         service_status = system_manager.service_status()
-        disabled_keys = media_manager.disabled_media_keys()
+        disabled_keys = media_manager.disabled_media_keys_by_context()
         return render_template(
             "dashboard.html",
             state=state,
@@ -188,6 +194,9 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             service_status=service_status,
             service_active=service_active(service_status),
             disabled_keys=disabled_keys,
+            context_fullscreen=PLAYLIST_CONTEXT_FULLSCREEN,
+            context_split_left=PLAYLIST_CONTEXT_SPLIT_LEFT,
+            context_split_right=PLAYLIST_CONTEXT_SPLIT_RIGHT,
         )
 
     @app.route("/playlist/selection", methods=["POST"])
@@ -195,13 +204,33 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     def update_playlist_selection():
         redirect_target = request.form.get("next") or url_for("dashboard")
 
-        def _normalize_key(raw: str) -> Optional[tuple[str, str]]:
-            if not raw or "|" not in raw:
-                return None
-            source, path = raw.split("|", 1)
-            return media_manager.normalize_media_entry(source, path)
+        valid_contexts = set(media_manager.playlist_contexts())
 
-        normalized_map: Dict[str, tuple[str, str]] = {}
+        def _normalize_key(raw: str) -> Optional[tuple[str, tuple[str, str]]]:
+            if not raw:
+                return None
+            parts = raw.split("|", 2)
+            if not parts:
+                return None
+            if parts[0] in valid_contexts:
+                if len(parts) < 3:
+                    return None
+                context = parts[0]
+                source = parts[1]
+                path = parts[2]
+            else:
+                if len(parts) < 2:
+                    return None
+                context = PLAYLIST_CONTEXT_FULLSCREEN
+                source = parts[0]
+                path = parts[1]
+            normalized = media_manager.normalize_media_entry(source, path)
+            if not normalized:
+                return None
+            return context, normalized
+
+        normalized_map: Dict[str, Dict[str, tuple[str, str]]] = {}
+        enabled_map: Dict[str, set[str]] = {}
         invalid = False
         for raw in request.form.getlist("all_media"):
             normalized_pair = _normalize_key(raw)
@@ -209,46 +238,99 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 if raw:
                     invalid = True
                 continue
-            key = f"{normalized_pair[0]}|{normalized_pair[1]}"
-            normalized_map[key] = normalized_pair
+            context, pair = normalized_pair
+            key = f"{pair[0]}|{pair[1]}"
+            context_map = normalized_map.setdefault(context, {})
+            context_map[key] = pair
 
-        enabled_raw = set(request.form.getlist("enabled_media"))
-        enabled_keys = {key for key in enabled_raw if key in normalized_map}
-
-        previous_entries = getattr(cfg.playback, "disabled_media", []) or []
-        previous_map: Dict[str, tuple[str, str]] = {}
-        for entry in previous_entries:
-            if isinstance(entry, dict):
-                entry_source = str(entry.get("source") or "").strip()
-                entry_path = str(entry.get("path") or "").strip()
-            else:
-                entry_source = str(getattr(entry, "source", "") or "").strip()
-                entry_path = str(getattr(entry, "path", "") or "").strip()
-            normalized_pair = media_manager.normalize_media_entry(entry_source, entry_path)
+        for raw in request.form.getlist("enabled_media"):
+            normalized_pair = _normalize_key(raw)
             if not normalized_pair:
+                if raw:
+                    invalid = True
                 continue
-            key = f"{normalized_pair[0]}|{normalized_pair[1]}"
-            previous_map[key] = normalized_pair
+            context, pair = normalized_pair
+            key = f"{pair[0]}|{pair[1]}"
+            if key not in normalized_map.get(context, {}):
+                continue
+            enabled_map.setdefault(context, set()).add(key)
 
-        preserved = {
-            key: pair for key, pair in previous_map.items() if key not in normalized_map
-        }
-        disabled_keys = set(normalized_map.keys()) - enabled_keys
-
-        updated_map = {**preserved}
-        for key in disabled_keys:
-            updated_map[key] = normalized_map[key]
-
-        current_pairs = set(previous_map.values())
-        new_pairs = set(updated_map.values())
-
-        if new_pairs != current_pairs:
-            serialized = [
-                {"source": source, "path": path}
-                for source, path in sorted(
-                    new_pairs, key=lambda item: (item[0].lower(), item[1].lower())
+        previous_entries = getattr(cfg.playback, "disabled_media", {}) or {}
+        previous_map: Dict[str, Dict[str, tuple[str, str]]] = {}
+        if isinstance(previous_entries, dict):
+            iterable = previous_entries.items()
+        else:
+            iterable = [(PLAYLIST_CONTEXT_FULLSCREEN, previous_entries)]
+        for context, entries in iterable:
+            if not entries:
+                continue
+            context_map = previous_map.setdefault(context, {})
+            for entry in entries:
+                if isinstance(entry, dict):
+                    entry_source = entry.get("source")
+                    entry_path = entry.get("path")
+                else:
+                    entry_source = getattr(entry, "source", None)
+                    entry_path = getattr(entry, "path", None)
+                normalized_pair = media_manager.normalize_media_entry(
+                    entry_source, entry_path
                 )
-            ]
+                if not normalized_pair:
+                    continue
+                key = f"{normalized_pair[0]}|{normalized_pair[1]}"
+                context_map[key] = normalized_pair
+
+        all_contexts = set(valid_contexts)
+        all_contexts.update(previous_map.keys())
+        all_contexts.update(normalized_map.keys())
+
+        updated_map: Dict[str, Dict[str, tuple[str, str]]] = {}
+        for context in all_contexts:
+            normalized_entries = normalized_map.get(context, {})
+            enabled_keys = enabled_map.get(context, set())
+            previous_entries_map = previous_map.get(context, {})
+            preserved = {
+                key: pair
+                for key, pair in previous_entries_map.items()
+                if key not in normalized_entries
+            }
+            disabled_keys = set(normalized_entries.keys()) - enabled_keys
+            context_updated = dict(preserved)
+            for key in disabled_keys:
+                context_updated[key] = normalized_entries[key]
+            updated_map[context] = context_updated
+
+        current_pairs = {
+            context: set(previous_map.get(context, {}).values()) for context in all_contexts
+        }
+        new_pairs = {
+            context: set(updated_map.get(context, {}).values()) for context in all_contexts
+        }
+
+        changed = any(
+            new_pairs.get(context, set()) != current_pairs.get(context, set())
+            for context in all_contexts
+        )
+
+        if changed:
+            def _serialize_context(context: str) -> List[Dict[str, str]]:
+                entries = updated_map.get(context, {})
+                return [
+                    {"source": source, "path": path}
+                    for source, path in sorted(
+                        entries.values(),
+                        key=lambda item: (item[0].lower(), item[1].lower()),
+                    )
+                ]
+
+            serialized: Dict[str, List[Dict[str, str]]] = {}
+            for context in valid_contexts:
+                serialized[context] = _serialize_context(context)
+
+            extra_contexts = sorted(all_contexts - valid_contexts)
+            for context in extra_contexts:
+                serialized[context] = _serialize_context(context)
+
             cfg.playback.disabled_media = serialized
             cfg.save()
             player.reload()
@@ -259,7 +341,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             else:
                 flash("Keine Änderungen erkannt", "info")
 
-        if invalid and new_pairs != current_pairs:
+        if invalid and changed:
             flash("Einige Einträge konnten nicht verarbeitet werden", "warning")
 
         return redirect(redirect_target)

@@ -1,5 +1,8 @@
 {% extends 'layout.html' %}
 {% set video_placeholder = url_for('static', filename='img/video-placeholder.svg') %}
+{% set ctx_fullscreen = context_fullscreen %}
+{% set ctx_split_left = context_split_left %}
+{% set ctx_split_right = context_split_right %}
 {% block title %}Übersicht – Slideshow{% endblock %}
 {% block content %}
 <section class="grid overview-grid">
@@ -70,13 +73,14 @@
                 </tr>
               </thead>
               <tbody>
+                {% set context_disabled = disabled_keys.get(ctx_split_left, []) %}
                 {% for item in splitscreen_left %}
                 {% set key = item.source ~ '|' ~ item.path %}
-                {% set is_disabled = key in disabled_keys %}
+                {% set is_disabled = key in context_disabled %}
                 <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
                   <td>
-                    <input type="hidden" name="all_media" value="{{ key }}" />
-                    <input type="checkbox" name="enabled_media" value="{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                    <input type="hidden" name="all_media" value="{{ ctx_split_left }}|{{ key }}" />
+                    <input type="checkbox" name="enabled_media" value="{{ ctx_split_left }}|{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
                   </td>
                   <td>{{ loop.index }}</td>
                   <td>
@@ -116,13 +120,14 @@
                 </tr>
               </thead>
               <tbody>
+                {% set context_disabled = disabled_keys.get(ctx_split_right, []) %}
                 {% for item in splitscreen_right %}
                 {% set key = item.source ~ '|' ~ item.path %}
-                {% set is_disabled = key in disabled_keys %}
+                {% set is_disabled = key in context_disabled %}
                 <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
                   <td>
-                    <input type="hidden" name="all_media" value="{{ key }}" />
-                    <input type="checkbox" name="enabled_media" value="{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                    <input type="hidden" name="all_media" value="{{ ctx_split_right }}|{{ key }}" />
+                    <input type="checkbox" name="enabled_media" value="{{ ctx_split_right }}|{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
                   </td>
                   <td>{{ loop.index }}</td>
                   <td>
@@ -169,13 +174,14 @@
             </tr>
           </thead>
           <tbody>
+            {% set context_disabled = disabled_keys.get(ctx_fullscreen, []) %}
             {% for item in playlist %}
             {% set key = item.source ~ '|' ~ item.path %}
-            {% set is_disabled = key in disabled_keys %}
+            {% set is_disabled = key in context_disabled %}
             <tr class="{% if is_disabled %}playlist-disabled{% endif %}">
               <td>
-                <input type="hidden" name="all_media" value="{{ key }}" />
-                <input type="checkbox" name="enabled_media" value="{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
+                <input type="hidden" name="all_media" value="{{ ctx_fullscreen }}|{{ key }}" />
+                <input type="checkbox" name="enabled_media" value="{{ ctx_fullscreen }}|{{ key }}" {% if not is_disabled %}checked{% endif %} title="{{ 'Medien anzeigen' if is_disabled else 'Medien ausblenden' }}" />
               </td>
               <td>{{ loop.index }}</td>
               <td>
