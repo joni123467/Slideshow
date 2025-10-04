@@ -16,7 +16,7 @@ from PIL import Image
 from .config import AppConfig, PlaylistItem
 from .info import InfoScreen
 from .media import MediaManager
-from .state import set_state
+from .state import get_state, set_manual_flag, set_state
 from .system import resolve_hostname, resolve_ip_addresses
 from .mpv_controller import MpvController
 
@@ -33,6 +33,8 @@ class PlayerService:
         self._stop = threading.Event()
         self._reload = threading.Event()
         self._info_manual = threading.Event()
+        if get_state().info_manual:
+            self._info_manual.set()
         self._info_screen = InfoScreen()
         self._split_threads: Dict[str, PlayerService._SplitWorker] = {}
         self._previous_images: Dict[str, Optional[pathlib.Path]] = {
@@ -96,6 +98,7 @@ class PlayerService:
             self._info_manual.set()
         else:
             self._info_manual.clear()
+        set_manual_flag(enabled)
         self.reload()
 
     def _run(self) -> None:
@@ -108,6 +111,7 @@ class PlayerService:
                 if manual_info:
                     self._stop_splitscreen_threads()
                     self._stop_controller("secondary")
+                    self._reload.clear()
                     if self.config.playback.info_screen_enabled:
                         self._display_info_screen(manual=True)
                     else:
@@ -178,6 +182,8 @@ class PlayerService:
             playlist = self.manager.build_playlist()
             if manual_info or not playlist:
                 if self.config.playback.info_screen_enabled:
+                    if manual_info:
+                        self._reload.clear()
                     self._display_info_screen(manual=manual_info)
                 else:
                     set_state(
@@ -202,8 +208,7 @@ class PlayerService:
                         preview_path=None,
                     )
                     time.sleep(refresh_interval)
-                if not manual_info:
-                    self._reload.clear()
+                self._reload.clear()
                 continue
 
             for item in playlist:
@@ -355,12 +360,14 @@ class PlayerService:
         return True
 
     def _stop_splitscreen_threads(self) -> None:
+        if not self._split_threads:
+            return
+
         for worker in self._split_threads.values():
             worker.stop()
         for worker in self._split_threads.values():
             worker.join(timeout=2)
-        if self._split_threads:
-            LOGGER.debug("Splitscreen-Threads gestoppt")
+        LOGGER.debug("Splitscreen-Threads gestoppt")
         self._split_threads.clear()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
@@ -551,12 +558,20 @@ class PlayerService:
         media_path: Optional[str] = None,
         display_label: Optional[str] = None,
         media_type: Optional[str] = None,
+        force_fullscreen: bool = False,
     ) -> None:
-        duration = max(1, int(duration))
-        processed_path, _ = self._prepare_image(path, side)
+        requested_duration = max(1.0, float(duration))
+        processed_path, _ = self._prepare_image(
+            path, side, force_fullscreen=force_fullscreen
+        )
 
         previous = self._previous_images.get(side)
-        self._play_transition(previous, processed_path, side=side, geometry=geometry)
+        transition_duration, transition_file = self._play_transition(
+            previous, processed_path, side=side, geometry=geometry
+        )
+        display_duration = requested_duration
+        if transition_duration > 0:
+            display_duration = max(1.0, requested_duration - transition_duration)
         if previous and previous != processed_path and self._is_temp_file(previous):
             self._safe_remove(previous)
 
@@ -593,13 +608,23 @@ class PlayerService:
             if not controller:
                 LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
             else:
-                controller.set_property("image-display-duration", duration)
+                controller.set_property("image-display-duration", display_duration)
                 hold_for_info = media_kind == "info"
+                manual_interrupts_allowed = not hold_for_info
                 if controller.load_file(processed_path):
-                    end_time = time.time() + duration
+                    if transition_file:
+                        self._safe_remove(transition_file)
+                    end_time = time.time() + display_duration
                     interrupted = False
                     while time.time() < end_time:
-                        if self._should_interrupt():
+                        if (
+                            self._stop.is_set()
+                            or self._reload.is_set()
+                            or (
+                                manual_interrupts_allowed
+                                and self._info_manual.is_set()
+                            )
+                        ):
                             controller.stop_playback()
                             interrupted = True
                             break
@@ -609,6 +634,8 @@ class PlayerService:
                             controller.set_property("pause", True)
                         except Exception:
                             LOGGER.debug("Konnte mpv nicht pausieren, um Infobildschirm zu halten")
+                elif transition_file:
+                    self._safe_remove(transition_file)
         elif viewer == "feh":
             cmd = [
                 viewer,
@@ -616,13 +643,17 @@ class PlayerService:
                 "--fullscreen",
                 "--auto-zoom",
                 "--slideshow-delay",
-                str(duration),
+                str(display_duration),
                 "--cycle-once",
                 str(processed_path),
             ]
             subprocess.run(cmd, check=False)
+            if transition_file:
+                self._safe_remove(transition_file)
         else:
             subprocess.run([viewer, str(processed_path)], check=False)
+            if transition_file:
+                self._safe_remove(transition_file)
         set_state(
             label,
             end_status,
@@ -647,15 +678,15 @@ class PlayerService:
         *,
         side: str,
         geometry: Optional[str],
-    ) -> None:
+    ) -> Tuple[float, Optional[pathlib.Path]]:
         transition_type = (self.config.playback.transition_type or "none").lower()
         if transition_type == "none" or not previous or not previous.exists():
-            return
+            return 0.0, None
         duration = max(0.2, float(self.config.playback.transition_duration))
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             LOGGER.warning("Übergang %s übersprungen, ffmpeg nicht gefunden", transition_type)
-            return
+            return 0.0, None
 
         transition_map = {
             "fade": "fade",
@@ -673,7 +704,7 @@ class PlayerService:
         transition = transition_map.get(transition_type)
         if not transition:
             LOGGER.warning("Unbekannter Übergangstyp: %s", transition_type)
-            return
+            return 0.0, None
 
         output = self._temp_dir / f"transition-{side}.mp4"
         cmd = [
@@ -702,7 +733,7 @@ class PlayerService:
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0 or not output.exists():
             LOGGER.warning("ffmpeg konnte Übergang nicht erzeugen")
-            return
+            return 0.0, None
 
         controller = None
         if self._uses_mpv():
@@ -711,6 +742,9 @@ class PlayerService:
             finished = controller.wait_until_idle(self._should_interrupt)
             if not finished and self._should_interrupt():
                 controller.stop_playback()
+                self._safe_remove(output)
+                return 0.0, None
+            return duration, output
         else:
             viewer = self.config.playback.video_player
             cmd = [
@@ -724,14 +758,19 @@ class PlayerService:
             cmd.extend(self._mpv_args)
             cmd.extend(self._mpv_geometry_args(geometry))
             cmd.append(str(output))
-            subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False)
         self._safe_remove(output)
+        return (duration, None) if result.returncode == 0 else (0.0, None)
 
     # Hilfsfunktionen ----------------------------------------------------
-    def _prepare_image(self, path: pathlib.Path, side: str) -> Tuple[pathlib.Path, bool]:
+    def _prepare_image(
+        self, path: pathlib.Path, side: str, *, force_fullscreen: bool = False
+    ) -> Tuple[pathlib.Path, bool]:
         fit_mode = (self.config.playback.image_fit or "contain").lower()
         rotation = int(self.config.playback.image_rotation) % 360
-        target_width, target_height = self._target_size(side)
+        target_width, target_height = self._target_size(
+            side, force_fullscreen=force_fullscreen
+        )
 
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         needs_processing = rotation != 0 or fit_mode in {"contain", "stretch"}
@@ -765,9 +804,13 @@ class PlayerService:
 
         return image_path, True
 
-    def _target_size(self, side: str) -> Tuple[int, int]:
+    def _target_size(self, side: str, *, force_fullscreen: bool = False) -> Tuple[int, int]:
         width, height = self._parse_resolution()
-        if self.config.playback.splitscreen_enabled and side in {"primary", "secondary"}:
+        if (
+            not force_fullscreen
+            and self.config.playback.splitscreen_enabled
+            and side in {"primary", "secondary"}
+        ):
             ratio = int(self.config.playback.splitscreen_ratio or 50)
             ratio = max(10, min(90, ratio))
             left_width = max(1, (width * ratio) // 100)
@@ -818,13 +861,24 @@ class PlayerService:
     def _collect_mpv_args(self) -> List[str]:
         unique_args: List[str] = []
         seen = set()
+        has_cursor_option = False
         for arg in itertools.chain(
             self.config.playback.video_player_args,
             self.config.playback.image_viewer_args,
         ):
-            if arg not in seen:
-                seen.add(arg)
-                unique_args.append(arg)
+            normalized = arg.strip()
+            if not normalized:
+                continue
+            lower = normalized.lower()
+            if lower == "--cursor-autohide" or lower.startswith("--cursor-autohide="):
+                has_cursor_option = True
+            if normalized not in seen:
+                seen.add(normalized)
+                unique_args.append(normalized)
+
+        if not has_cursor_option:
+            unique_args.insert(0, "--cursor-autohide=always")
+
         return unique_args
 
     def _should_interrupt(self) -> bool:
@@ -898,4 +952,5 @@ class PlayerService:
             media_path=info_path.name,
             display_label=label,
             media_type="info",
+            force_fullscreen=True,
         )
