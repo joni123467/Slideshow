@@ -355,12 +355,14 @@ class PlayerService:
         return True
 
     def _stop_splitscreen_threads(self) -> None:
+        if not self._split_threads:
+            return
+
         for worker in self._split_threads.values():
             worker.stop()
         for worker in self._split_threads.values():
             worker.join(timeout=2)
-        if self._split_threads:
-            LOGGER.debug("Splitscreen-Threads gestoppt")
+        LOGGER.debug("Splitscreen-Threads gestoppt")
         self._split_threads.clear()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
@@ -552,11 +554,16 @@ class PlayerService:
         display_label: Optional[str] = None,
         media_type: Optional[str] = None,
     ) -> None:
-        duration = max(1, int(duration))
+        requested_duration = max(1.0, float(duration))
         processed_path, _ = self._prepare_image(path, side)
 
         previous = self._previous_images.get(side)
-        self._play_transition(previous, processed_path, side=side, geometry=geometry)
+        transition_duration, transition_file = self._play_transition(
+            previous, processed_path, side=side, geometry=geometry
+        )
+        display_duration = requested_duration
+        if transition_duration > 0:
+            display_duration = max(1.0, requested_duration - transition_duration)
         if previous and previous != processed_path and self._is_temp_file(previous):
             self._safe_remove(previous)
 
@@ -593,13 +600,23 @@ class PlayerService:
             if not controller:
                 LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
             else:
-                controller.set_property("image-display-duration", duration)
+                controller.set_property("image-display-duration", display_duration)
                 hold_for_info = media_kind == "info"
+                manual_interrupts_allowed = not hold_for_info
                 if controller.load_file(processed_path):
-                    end_time = time.time() + duration
+                    if transition_file:
+                        self._safe_remove(transition_file)
+                    end_time = time.time() + display_duration
                     interrupted = False
                     while time.time() < end_time:
-                        if self._should_interrupt():
+                        if (
+                            self._stop.is_set()
+                            or self._reload.is_set()
+                            or (
+                                manual_interrupts_allowed
+                                and self._info_manual.is_set()
+                            )
+                        ):
                             controller.stop_playback()
                             interrupted = True
                             break
@@ -609,6 +626,8 @@ class PlayerService:
                             controller.set_property("pause", True)
                         except Exception:
                             LOGGER.debug("Konnte mpv nicht pausieren, um Infobildschirm zu halten")
+                elif transition_file:
+                    self._safe_remove(transition_file)
         elif viewer == "feh":
             cmd = [
                 viewer,
@@ -616,13 +635,17 @@ class PlayerService:
                 "--fullscreen",
                 "--auto-zoom",
                 "--slideshow-delay",
-                str(duration),
+                str(display_duration),
                 "--cycle-once",
                 str(processed_path),
             ]
             subprocess.run(cmd, check=False)
+            if transition_file:
+                self._safe_remove(transition_file)
         else:
             subprocess.run([viewer, str(processed_path)], check=False)
+            if transition_file:
+                self._safe_remove(transition_file)
         set_state(
             label,
             end_status,
@@ -647,15 +670,15 @@ class PlayerService:
         *,
         side: str,
         geometry: Optional[str],
-    ) -> None:
+    ) -> Tuple[float, Optional[pathlib.Path]]:
         transition_type = (self.config.playback.transition_type or "none").lower()
         if transition_type == "none" or not previous or not previous.exists():
-            return
+            return 0.0, None
         duration = max(0.2, float(self.config.playback.transition_duration))
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             LOGGER.warning("Übergang %s übersprungen, ffmpeg nicht gefunden", transition_type)
-            return
+            return 0.0, None
 
         transition_map = {
             "fade": "fade",
@@ -673,7 +696,7 @@ class PlayerService:
         transition = transition_map.get(transition_type)
         if not transition:
             LOGGER.warning("Unbekannter Übergangstyp: %s", transition_type)
-            return
+            return 0.0, None
 
         output = self._temp_dir / f"transition-{side}.mp4"
         cmd = [
@@ -702,7 +725,7 @@ class PlayerService:
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0 or not output.exists():
             LOGGER.warning("ffmpeg konnte Übergang nicht erzeugen")
-            return
+            return 0.0, None
 
         controller = None
         if self._uses_mpv():
@@ -711,6 +734,9 @@ class PlayerService:
             finished = controller.wait_until_idle(self._should_interrupt)
             if not finished and self._should_interrupt():
                 controller.stop_playback()
+                self._safe_remove(output)
+                return 0.0, None
+            return duration, output
         else:
             viewer = self.config.playback.video_player
             cmd = [
@@ -724,8 +750,9 @@ class PlayerService:
             cmd.extend(self._mpv_args)
             cmd.extend(self._mpv_geometry_args(geometry))
             cmd.append(str(output))
-            subprocess.run(cmd, check=False)
+            result = subprocess.run(cmd, check=False)
         self._safe_remove(output)
+        return (duration, None) if result.returncode == 0 else (0.0, None)
 
     # Hilfsfunktionen ----------------------------------------------------
     def _prepare_image(self, path: pathlib.Path, side: str) -> Tuple[pathlib.Path, bool]:
