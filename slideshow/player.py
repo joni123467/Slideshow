@@ -845,13 +845,24 @@ class PlayerService:
     def _collect_mpv_args(self) -> List[str]:
         unique_args: List[str] = []
         seen = set()
+        has_cursor_option = False
         for arg in itertools.chain(
             self.config.playback.video_player_args,
             self.config.playback.image_viewer_args,
         ):
-            if arg not in seen:
-                seen.add(arg)
-                unique_args.append(arg)
+            normalized = arg.strip()
+            if not normalized:
+                continue
+            lower = normalized.lower()
+            if lower == "--cursor-autohide" or lower.startswith("--cursor-autohide="):
+                has_cursor_option = True
+            if normalized not in seen:
+                seen.add(normalized)
+                unique_args.append(normalized)
+
+        if not has_cursor_option:
+            unique_args.insert(0, "--cursor-autohide=always")
+
         return unique_args
 
     def _should_interrupt(self) -> bool:
