@@ -468,16 +468,21 @@ form {
   margin: 0 0 0.5rem 0;
 }
 
-.playlist-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
+
+.playlist-selection td:first-child {
+  text-align: center;
+  vertical-align: middle;
 }
 
-.playlist-toggle input[type="checkbox"] {
+.playlist-selection input[type="checkbox"] {
   width: 1.1rem;
   height: 1.1rem;
+}
+
+.playlist-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
 }
 
 table tr.playlist-disabled {

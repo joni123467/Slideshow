@@ -650,10 +650,23 @@ class MediaManager:
     def scan_directory(self, source: MediaSource, base_path: Optional[str] = None) -> List[PlaylistItem]:
         items: List[PlaylistItem] = []
         source_root = pathlib.Path(source.path)
-        subpath = base_path
-        if not subpath:
-            subpath = source.subpath
-        normalized = _normalize_subpath(subpath)
+        normalized = _normalize_subpath(base_path)
+        configured = _normalize_subpath(source.subpath)
+
+        if normalized:
+            parts = [part for part in normalized.split("/") if part]
+            if configured:
+                configured_parts = [part for part in configured.split("/") if part]
+                if not (
+                    len(parts) >= len(configured_parts)
+                    and [part.lower() for part in parts[: len(configured_parts)]]
+                    == [part.lower() for part in configured_parts]
+                ):
+                    parts = configured_parts + parts
+            normalized = "/".join(parts)
+        else:
+            normalized = configured
+
         base = source_root / pathlib.Path(normalized) if normalized else source_root
         if not base.exists():
             LOGGER.warning("Verzeichnis %s existiert nicht", base)

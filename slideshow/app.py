@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import pathlib
 import subprocess
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from flask import (
     Flask,
@@ -190,64 +190,77 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             disabled_keys=disabled_keys,
         )
 
-    @app.route("/playlist/toggle", methods=["POST"])
+    @app.route("/playlist/selection", methods=["POST"])
     @pam_required
-    def toggle_playlist_item():
-        source = (request.form.get("source") or "").strip()
-        path = (request.form.get("path") or "").strip()
-        enabled_flag = (request.form.get("enabled") or "").strip().lower()
+    def update_playlist_selection():
         redirect_target = request.form.get("next") or url_for("dashboard")
-        normalized_pair = media_manager.normalize_media_entry(source, path)
-        if not normalized_pair:
-            flash("Ungültiger Playlist-Eintrag", "danger")
-            return redirect(redirect_target)
-        norm_source, norm_path = normalized_pair
 
-        desired_enabled = enabled_flag in {"1", "true", "on", "yes"}
+        def _normalize_key(raw: str) -> Optional[tuple[str, str]]:
+            if not raw or "|" not in raw:
+                return None
+            source, path = raw.split("|", 1)
+            return media_manager.normalize_media_entry(source, path)
 
-        def _normalize_entries(entries: Optional[List[Any]]) -> List[Dict[str, str]]:
-            normalized: List[Dict[str, str]] = []
-            if not entries:
-                return normalized
-            for entry in entries:
-                if isinstance(entry, dict):
-                    entry_source = str(entry.get("source") or "").strip()
-                    entry_path = str(entry.get("path") or "").strip()
-                else:
-                    entry_source = str(getattr(entry, "source", "") or "").strip()
-                    entry_path = str(getattr(entry, "path", "") or "").strip()
-                normalized_pair = media_manager.normalize_media_entry(entry_source, entry_path)
-                if normalized_pair:
-                    normalized.append({"source": normalized_pair[0], "path": normalized_pair[1]})
-            return normalized
+        normalized_map: Dict[str, tuple[str, str]] = {}
+        invalid = False
+        for raw in request.form.getlist("all_media"):
+            normalized_pair = _normalize_key(raw)
+            if not normalized_pair:
+                if raw:
+                    invalid = True
+                continue
+            key = f"{normalized_pair[0]}|{normalized_pair[1]}"
+            normalized_map[key] = normalized_pair
 
-        previous = _normalize_entries(cfg.playback.disabled_media)
-        updated: List[Dict[str, str]] = []
-        found = False
-        for entry in previous:
-            if entry["source"] == norm_source and entry["path"] == norm_path:
-                found = True
-                if desired_enabled:
-                    continue
-            updated.append(entry)
-        if not desired_enabled and not found:
-            updated.append({"source": norm_source, "path": norm_path})
+        enabled_raw = set(request.form.getlist("enabled_media"))
+        enabled_keys = {key for key in enabled_raw if key in normalized_map}
 
-        if updated:
-            unique: Dict[str, Dict[str, str]] = {}
-            deduped: List[Dict[str, str]] = []
-            for entry in updated:
-                key = f"{entry['source']}|{entry['path']}"
-                if key in unique:
-                    continue
-                unique[key] = entry
-                deduped.append(entry)
-            updated = deduped
+        previous_entries = getattr(cfg.playback, "disabled_media", []) or []
+        previous_map: Dict[str, tuple[str, str]] = {}
+        for entry in previous_entries:
+            if isinstance(entry, dict):
+                entry_source = str(entry.get("source") or "").strip()
+                entry_path = str(entry.get("path") or "").strip()
+            else:
+                entry_source = str(getattr(entry, "source", "") or "").strip()
+                entry_path = str(getattr(entry, "path", "") or "").strip()
+            normalized_pair = media_manager.normalize_media_entry(entry_source, entry_path)
+            if not normalized_pair:
+                continue
+            key = f"{normalized_pair[0]}|{normalized_pair[1]}"
+            previous_map[key] = normalized_pair
 
-        if updated != previous:
-            cfg.playback.disabled_media = updated
+        preserved = {
+            key: pair for key, pair in previous_map.items() if key not in normalized_map
+        }
+        disabled_keys = set(normalized_map.keys()) - enabled_keys
+
+        updated_map = {**preserved}
+        for key in disabled_keys:
+            updated_map[key] = normalized_map[key]
+
+        current_pairs = set(previous_map.values())
+        new_pairs = set(updated_map.values())
+
+        if new_pairs != current_pairs:
+            serialized = [
+                {"source": source, "path": path}
+                for source, path in sorted(
+                    new_pairs, key=lambda item: (item[0].lower(), item[1].lower())
+                )
+            ]
+            cfg.playback.disabled_media = serialized
             cfg.save()
             player.reload()
+            flash("Auswahl gespeichert", "success")
+        else:
+            if invalid:
+                flash("Einige Einträge konnten nicht verarbeitet werden", "warning")
+            else:
+                flash("Keine Änderungen erkannt", "info")
+
+        if invalid and new_pairs != current_pairs:
+            flash("Einige Einträge konnten nicht verarbeitet werden", "warning")
 
         return redirect(redirect_target)
 
