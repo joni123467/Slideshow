@@ -77,6 +77,7 @@ DEFAULT_CONFIG = {
         "splitscreen_right_source": None,
         "splitscreen_right_path": "",
         "splitscreen_ratio": 50,
+        "disabled_media": [],
     },
     "network": {
         "hostname": None,
@@ -147,6 +148,7 @@ class PlaybackConfig:
     splitscreen_right_source: Optional[str]
     splitscreen_right_path: str
     splitscreen_ratio: int
+    disabled_media: List[Dict[str, Any]]
 
 
 @dataclasses.dataclass

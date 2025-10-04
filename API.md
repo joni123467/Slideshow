@@ -118,7 +118,7 @@ Liefert ein kleines JPEG-Vorschaubild für Bilddateien einer Quelle. Für andere
 
 ### `GET /logs/<name>/download`
 
-Lädt eine komplette Logdatei als Text herunter. Der Parameter `<name>` entspricht einem Schlüssel aus der Logauswahl des System-Tabs (`app`, `player`, `media`, `network`, `system`).
+Lädt eine komplette Logdatei als Text herunter. Der Parameter `<name>` entspricht einem Schlüssel aus der Logauswahl des System-Tabs (`app`, `player`, `media`, `network`, `system`, `update`).
 
 ## Systemverwaltung
 
