@@ -602,13 +602,21 @@ class PlayerService:
             else:
                 controller.set_property("image-display-duration", display_duration)
                 hold_for_info = media_kind == "info"
+                manual_interrupts_allowed = not hold_for_info
                 if controller.load_file(processed_path):
                     if transition_file:
                         self._safe_remove(transition_file)
                     end_time = time.time() + display_duration
                     interrupted = False
                     while time.time() < end_time:
-                        if self._should_interrupt():
+                        if (
+                            self._stop.is_set()
+                            or self._reload.is_set()
+                            or (
+                                manual_interrupts_allowed
+                                and self._info_manual.is_set()
+                            )
+                        ):
                             controller.stop_playback()
                             interrupted = True
                             break
