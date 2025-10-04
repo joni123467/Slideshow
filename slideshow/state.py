@@ -150,3 +150,15 @@ def set_state(
 def get_state() -> PlaybackState:
     with _lock:
         return load_state()
+
+
+def set_manual_flag(enabled: bool) -> PlaybackState:
+    """Merkt sich, ob der Infobildschirm manuell aktiviert wurde."""
+
+    with _lock:
+        state = load_state()
+        state.info_manual = enabled
+        if enabled:
+            state.info_screen = True
+        save_state(state)
+        return state
