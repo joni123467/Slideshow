@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import io
 from dataclasses import asdict
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -38,6 +38,15 @@ CACHEABLE_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
 MOUNT_ROOT = (DATA_DIR / "mounts").resolve()
+
+PLAYLIST_CONTEXT_FULLSCREEN = "fullscreen"
+PLAYLIST_CONTEXT_SPLIT_LEFT = "splitscreen_left"
+PLAYLIST_CONTEXT_SPLIT_RIGHT = "splitscreen_right"
+PLAYLIST_CONTEXTS = (
+    PLAYLIST_CONTEXT_FULLSCREEN,
+    PLAYLIST_CONTEXT_SPLIT_LEFT,
+    PLAYLIST_CONTEXT_SPLIT_RIGHT,
+)
 
 
 def _paths_equal(left: pathlib.Path, right: pathlib.Path) -> bool:
@@ -97,6 +106,143 @@ class MediaManager:
         ensure_cache_dir()
         self._migrate_mount_points()
         self._ensure_local_directories()
+
+    # Zustandsabfragen -------------------------------------------------
+    def _disabled_media_entries(self, context: str) -> List[dict]:
+        disabled = getattr(self.config.playback, "disabled_media", {}) or {}
+        if isinstance(disabled, dict):
+            entries = disabled.get(context, []) or []
+        else:
+            # Rückfall für alte Konfigurationen ohne Kontexte
+            entries = disabled if context == PLAYLIST_CONTEXT_FULLSCREEN else []
+        result: List[dict] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                result.append(entry)
+            elif isinstance(entry, PlaylistItem):
+                result.append({"source": entry.source, "path": entry.path})
+            else:
+                result.append(
+                    {
+                        "source": getattr(entry, "source", None),
+                        "path": getattr(entry, "path", None),
+                    }
+                )
+        return result
+
+    def _disabled_media_pairs(self, context: str) -> set[Tuple[str, str]]:
+        pairs: set[Tuple[str, str]] = set()
+        for entry in self._disabled_media_entries(context):
+            normalized = self.normalize_media_entry(entry.get("source"), entry.get("path"))
+            if normalized:
+                pairs.add(normalized)
+        return pairs
+
+    def disabled_media_keys(self, context: str = PLAYLIST_CONTEXT_FULLSCREEN) -> set[str]:
+        return {
+            f"{source}|{path}"
+            for source, path in self._disabled_media_pairs(context)
+        }
+
+    def disabled_media_keys_by_context(self) -> Dict[str, set[str]]:
+        return {
+            context: self.disabled_media_keys(context) for context in PLAYLIST_CONTEXTS
+        }
+
+    def playlist_contexts(self) -> Tuple[str, ...]:
+        return PLAYLIST_CONTEXTS
+
+    def normalize_media_entry(
+        self, source: Optional[str], path: Optional[str]
+    ) -> Optional[Tuple[str, str]]:
+        normalized_source = str(source or "").strip()
+        normalized_path_raw = str(path or "")
+        normalized_path = _normalize_subpath(normalized_path_raw)
+        if normalized_path is None:
+            normalized_path = normalized_path_raw.replace("\\", "/")
+            normalized_path = normalized_path.strip()
+            normalized_path = re.sub(r"/{2,}", "/", normalized_path)
+            normalized_path = normalized_path.strip("/")
+        if not normalized_source or not normalized_path:
+            return None
+        return normalized_source, normalized_path
+
+    def _relative_from_filesystem(self, source: MediaSource, raw: str) -> Optional[str]:
+        if not raw:
+            return None
+        try:
+            path_obj = pathlib.Path(raw)
+        except Exception:  # pragma: no cover - defensive
+            return None
+        try:
+            if path_obj.is_absolute():
+                relative = path_obj.relative_to(pathlib.Path(source.path))
+                normalized = _normalize_subpath(str(relative))
+                if not normalized:
+                    return None
+                configured = _normalize_subpath(source.subpath)
+                if configured:
+                    conf_parts = [part for part in configured.split("/") if part]
+                    rel_parts = [part for part in normalized.split("/") if part]
+                    if len(rel_parts) >= len(conf_parts) and [
+                        part.lower() for part in rel_parts[: len(conf_parts)]
+                    ] == [part.lower() for part in conf_parts]:
+                        rel_parts = rel_parts[len(conf_parts) :]
+                        normalized = "/".join(rel_parts)
+                return normalized or None
+        except ValueError:
+            return None
+        return None
+
+    def _normalize_split_base(self, source: MediaSource, raw: Optional[str]) -> Optional[str]:
+        if raw is None:
+            return None
+        raw_str = str(raw).strip()
+        if not raw_str:
+            return None
+        fs_relative = self._relative_from_filesystem(source, raw_str)
+        sanitized = re.sub(r"^smb://", "", raw_str, flags=re.IGNORECASE)
+        sanitized = sanitized.replace("\\", "/").strip()
+        sanitized = sanitized.strip("/")
+        parts = [part for part in sanitized.split("/") if part]
+        if parts and ":" in parts[0]:
+            parts = parts[1:]
+        if source.type == "smb":
+            server = str(source.options.get("server") or "").strip().strip("\\/")
+            share = str(source.options.get("share") or "").strip().strip("\\/")
+            if server and share and len(parts) >= 2:
+                if parts[0].lower() == server.lower() and parts[1].lower() == share.lower():
+                    parts = parts[2:]
+        configured = _normalize_subpath(source.subpath)
+        if configured:
+            conf_parts = [part for part in configured.split("/") if part]
+            if len(parts) >= len(conf_parts) and [
+                part.lower() for part in parts[: len(conf_parts)]
+            ] == [part.lower() for part in conf_parts]:
+                parts = parts[len(conf_parts) :]
+        candidate = "/".join(parts)
+        if candidate:
+            return candidate
+        return fs_relative
+
+    def normalize_split_path(self, source_name: Optional[str], raw: Optional[str]) -> str:
+        if not raw:
+            return ""
+        raw_str = str(raw).strip()
+        if not raw_str:
+            return ""
+        source = self.config.get_source(source_name) if source_name else None
+        if source:
+            normalized = self._normalize_split_base(source, raw_str)
+            if normalized:
+                return normalized
+        cleaned = re.sub(r"^smb://", "", raw_str, flags=re.IGNORECASE)
+        cleaned = cleaned.replace("\\", "/").strip("/")
+        parts = [part for part in cleaned.split("/") if part]
+        if parts and ":" in parts[0]:
+            parts = parts[1:]
+        cleaned = "/".join(parts)
+        return cleaned
 
     # Initialisierungs-Helfer --------------------------------------------
     def _is_mount_active(self, mount_point: pathlib.Path) -> bool:
@@ -321,7 +467,15 @@ class MediaManager:
         if smb_path:
             server, share, parsed_subpath = parse_smb_location(smb_path)
 
-        normalized_subpath = _normalize_subpath(subpath or parsed_subpath or source.subpath)
+        normalized_subpath: Optional[str]
+        if subpath is not None:
+            normalized_subpath = _normalize_subpath(subpath)
+            if normalized_subpath is None and not source.subpath and parsed_subpath:
+                normalized_subpath = _normalize_subpath(parsed_subpath)
+        elif parsed_subpath is not None:
+            normalized_subpath = _normalize_subpath(parsed_subpath)
+        else:
+            normalized_subpath = source.subpath
 
         if target_name != name:
             for item in self.config.playlist:
@@ -526,10 +680,23 @@ class MediaManager:
     def scan_directory(self, source: MediaSource, base_path: Optional[str] = None) -> List[PlaylistItem]:
         items: List[PlaylistItem] = []
         source_root = pathlib.Path(source.path)
-        subpath = base_path
-        if not subpath:
-            subpath = source.subpath
-        normalized = _normalize_subpath(subpath)
+        normalized = _normalize_subpath(base_path)
+        configured = _normalize_subpath(source.subpath)
+
+        if normalized:
+            parts = [part for part in normalized.split("/") if part]
+            if configured:
+                configured_parts = [part for part in configured.split("/") if part]
+                if not (
+                    len(parts) >= len(configured_parts)
+                    and [part.lower() for part in parts[: len(configured_parts)]]
+                    == [part.lower() for part in configured_parts]
+                ):
+                    parts = configured_parts + parts
+            normalized = "/".join(parts)
+        else:
+            normalized = configured
+
         base = source_root / pathlib.Path(normalized) if normalized else source_root
         if not base.exists():
             LOGGER.warning("Verzeichnis %s existiert nicht", base)
@@ -574,10 +741,23 @@ class MediaManager:
             )
         return items
 
-    def build_playlist(self) -> List[PlaylistItem]:
-        manual_items = list(self.config.playlist)
+    def build_playlist(
+        self,
+        *,
+        include_disabled: bool = False,
+        context: str = PLAYLIST_CONTEXT_FULLSCREEN,
+    ) -> List[PlaylistItem]:
+        disabled = set()
+        if not include_disabled:
+            disabled = self._disabled_media_pairs(context)
+        manual_items = [
+            item
+            for item in self.config.playlist
+            if include_disabled or (item.source, item.path) not in disabled
+        ]
         auto_items: List[PlaylistItem] = []
         seen = {(item.source, item.path) for item in manual_items}
+        seen.update(disabled)
         for source in self.config.media_sources:
             if not source.auto_scan:
                 continue
@@ -618,9 +798,16 @@ class MediaManager:
         left_path: str,
         right_source: Optional[str],
         right_path: str,
+        *,
+        include_disabled: bool = False,
     ) -> tuple[List[PlaylistItem], List[PlaylistItem]]:
         left_items: List[PlaylistItem] = []
         right_items: List[PlaylistItem] = []
+        disabled_left = set()
+        disabled_right = set()
+        if not include_disabled:
+            disabled_left = self._disabled_media_pairs(PLAYLIST_CONTEXT_SPLIT_LEFT)
+            disabled_right = self._disabled_media_pairs(PLAYLIST_CONTEXT_SPLIT_RIGHT)
 
         if left_source:
             source = self.config.get_source(left_source)
@@ -630,17 +817,16 @@ class MediaManager:
                 except Exception as exc:  # pragma: no cover - defensive
                     LOGGER.warning("Konnte linke Quelle %s nicht mounten: %s", left_source, exc)
                 else:
-                    base = left_path or None
-                    if base and source.subpath:
-                        base = "/".join(
-                            part
-                            for part in (
-                                _normalize_subpath(source.subpath),
-                                _normalize_subpath(base),
-                            )
-                            if part
-                        )
-                    left_items = self.scan_directory(source, base)
+                    base = self._normalize_split_base(source, left_path)
+                    items = list(self.scan_directory(source, base))
+                    if include_disabled:
+                        left_items = items
+                    else:
+                        left_items = [
+                            item
+                            for item in items
+                            if (item.source, item.path) not in disabled_left
+                        ]
             else:
                 LOGGER.warning("Linke Quelle %s unbekannt", left_source)
 
@@ -652,17 +838,16 @@ class MediaManager:
                 except Exception as exc:  # pragma: no cover - defensive
                     LOGGER.warning("Konnte rechte Quelle %s nicht mounten: %s", right_source, exc)
                 else:
-                    base = right_path or None
-                    if base and source.subpath:
-                        base = "/".join(
-                            part
-                            for part in (
-                                _normalize_subpath(source.subpath),
-                                _normalize_subpath(base),
-                            )
-                            if part
-                        )
-                    right_items = self.scan_directory(source, base)
+                    base = self._normalize_split_base(source, right_path)
+                    items = list(self.scan_directory(source, base))
+                    if include_disabled:
+                        right_items = items
+                    else:
+                        right_items = [
+                            item
+                            for item in items
+                            if (item.source, item.path) not in disabled_right
+                        ]
             else:
                 LOGGER.warning("Rechte Quelle %s unbekannt", right_source)
 

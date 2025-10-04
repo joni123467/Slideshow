@@ -594,13 +594,21 @@ class PlayerService:
                 LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
             else:
                 controller.set_property("image-display-duration", duration)
+                hold_for_info = media_kind == "info"
                 if controller.load_file(processed_path):
                     end_time = time.time() + duration
+                    interrupted = False
                     while time.time() < end_time:
                         if self._should_interrupt():
                             controller.stop_playback()
+                            interrupted = True
                             break
                         time.sleep(0.2)
+                    if hold_for_info and not interrupted:
+                        try:
+                            controller.set_property("pause", True)
+                        except Exception:
+                            LOGGER.debug("Konnte mpv nicht pausieren, um Infobildschirm zu halten")
         elif viewer == "feh":
             cmd = [
                 viewer,

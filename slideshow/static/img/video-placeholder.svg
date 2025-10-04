@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" role="img" aria-labelledby="title desc">
+  <title id="title">Video Platzhalter</title>
+  <desc id="desc">Symbolische Wiedergabeanzeige mit einem Play-Icon</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f3b6d" />
+      <stop offset="100%" stop-color="#0f1f3a" />
+    </linearGradient>
+    <linearGradient id="play" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#cfd6ff" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="160" height="90" rx="8" fill="url(#bg)" />
+  <rect x="12" y="16" width="136" height="58" rx="6" fill="#121d33" stroke="#2f4370" stroke-width="2" />
+  <polygon points="70,45 70,35 90,45 70,55" fill="url(#play)" />
+  <circle cx="140" cy="22" r="4" fill="#ff7a45" />
+  <circle cx="150" cy="22" r="4" fill="#ffd166" />
+  <circle cx="130" cy="22" r="4" fill="#06d6a0" />
+</svg>

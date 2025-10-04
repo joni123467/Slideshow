@@ -56,8 +56,26 @@
       <label>Übergangsdauer (Sekunden)
         <input type="number" step="0.1" min="0.2" max="10" name="transition_duration" value="{{ config.playback.transition_duration }}" />
       </label>
+      {% set current_resolution = config.playback.display_resolution %}
+      {% set show_custom = current_resolution not in resolution_values and (not detected_resolution or current_resolution != detected_resolution) %}
       <label>Anzeigeauflösung
-        <input type="text" name="display_resolution" value="{{ config.playback.display_resolution }}" />
+        <div class="resolution-picker">
+          <select name="display_resolution_choice" id="display-resolution-choice">
+            {% if detected_resolution and detected_resolution not in resolution_values %}
+            <option value="{{ detected_resolution }}" {% if current_resolution == detected_resolution %}selected{% endif %}>{{ detected_resolution }} (erkannt)</option>
+            {% endif %}
+            {% for value, label in display_resolution_choices %}
+            <option value="{{ value }}" {% if current_resolution == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+            <option value="custom" {% if show_custom %}selected{% endif %}>Benutzerdefiniert</option>
+          </select>
+          <input type="text" name="display_resolution_custom" id="display-resolution-custom" value="{% if show_custom %}{{ current_resolution }}{% endif %}" placeholder="z. B. 1920x1080" {% if not show_custom %}hidden disabled{% endif %} />
+        </div>
+        {% if detected_resolution %}
+        <small class="muted">Erkannte Auflösung: <strong>{{ detected_resolution }}</strong>. Wähle „Benutzerdefiniert“, um einen anderen Wert einzugeben.</small>
+        {% else %}
+        <small class="muted">Wähle eine passende Auflösung oder nutze „Benutzerdefiniert“ für eigene Werte.</small>
+        {% endif %}
       </label>
       <label>Zusätzliche Video-Argumente
         <textarea name="video_player_args" rows="3" placeholder="z. B. --vo=gpu">{{ config.playback.video_player_args | default([], true) | join('\n') }}</textarea>
@@ -92,6 +110,7 @@
             </label>
             <label>Pfad (optional)
               <input type="text" name="splitscreen_left_path" value="{{ config.playback.splitscreen_left_path }}" />
+              <small class="muted">Relativer Unterordner innerhalb der Quelle, z. B. <code>bilder\\links</code> oder <code>bilder/links</code>.</small>
             </label>
           </div>
           <div>
@@ -106,6 +125,7 @@
             </label>
             <label>Pfad (optional)
               <input type="text" name="splitscreen_right_path" value="{{ config.playback.splitscreen_right_path }}" />
+              <small class="muted">Relativer Unterordner innerhalb der Quelle, z. B. <code>videos\\rechts</code> oder <code>videos/rechts</code>.</small>
             </label>
           </div>
         </div>
@@ -149,6 +169,23 @@
       updateLabel();
     }
     updateVisibility();
+
+    const resolutionChoice = document.getElementById('display-resolution-choice');
+    const resolutionCustom = document.getElementById('display-resolution-custom');
+
+    const updateResolutionVisibility = () => {
+      if (!resolutionChoice || !resolutionCustom) {
+        return;
+      }
+      const useCustom = resolutionChoice.value === 'custom';
+      resolutionCustom.hidden = !useCustom;
+      resolutionCustom.disabled = !useCustom;
+    };
+
+    if (resolutionChoice) {
+      resolutionChoice.addEventListener('change', updateResolutionVisibility);
+      updateResolutionVisibility();
+    }
   })();
 </script>
 {% endblock %}
