@@ -355,12 +355,14 @@ class PlayerService:
         return True
 
     def _stop_splitscreen_threads(self) -> None:
+        if not self._split_threads:
+            return
+
         for worker in self._split_threads.values():
             worker.stop()
         for worker in self._split_threads.values():
             worker.join(timeout=2)
-        if self._split_threads:
-            LOGGER.debug("Splitscreen-Threads gestoppt")
+        LOGGER.debug("Splitscreen-Threads gestoppt")
         self._split_threads.clear()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
