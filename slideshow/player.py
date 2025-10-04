@@ -16,7 +16,7 @@ from PIL import Image
 from .config import AppConfig, PlaylistItem
 from .info import InfoScreen
 from .media import MediaManager
-from .state import set_state
+from .state import get_state, set_manual_flag, set_state
 from .system import resolve_hostname, resolve_ip_addresses
 from .mpv_controller import MpvController
 
@@ -33,6 +33,8 @@ class PlayerService:
         self._stop = threading.Event()
         self._reload = threading.Event()
         self._info_manual = threading.Event()
+        if get_state().info_manual:
+            self._info_manual.set()
         self._info_screen = InfoScreen()
         self._split_threads: Dict[str, PlayerService._SplitWorker] = {}
         self._previous_images: Dict[str, Optional[pathlib.Path]] = {
@@ -96,6 +98,7 @@ class PlayerService:
             self._info_manual.set()
         else:
             self._info_manual.clear()
+        set_manual_flag(enabled)
         self.reload()
 
     def _run(self) -> None:
