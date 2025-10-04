@@ -111,6 +111,7 @@ class PlayerService:
                 if manual_info:
                     self._stop_splitscreen_threads()
                     self._stop_controller("secondary")
+                    self._reload.clear()
                     if self.config.playback.info_screen_enabled:
                         self._display_info_screen(manual=True)
                     else:
@@ -181,6 +182,8 @@ class PlayerService:
             playlist = self.manager.build_playlist()
             if manual_info or not playlist:
                 if self.config.playback.info_screen_enabled:
+                    if manual_info:
+                        self._reload.clear()
                     self._display_info_screen(manual=manual_info)
                 else:
                     set_state(
@@ -205,8 +208,7 @@ class PlayerService:
                         preview_path=None,
                     )
                     time.sleep(refresh_interval)
-                if not manual_info:
-                    self._reload.clear()
+                self._reload.clear()
                 continue
 
             for item in playlist:
@@ -556,9 +558,12 @@ class PlayerService:
         media_path: Optional[str] = None,
         display_label: Optional[str] = None,
         media_type: Optional[str] = None,
+        force_fullscreen: bool = False,
     ) -> None:
         requested_duration = max(1.0, float(duration))
-        processed_path, _ = self._prepare_image(path, side)
+        processed_path, _ = self._prepare_image(
+            path, side, force_fullscreen=force_fullscreen
+        )
 
         previous = self._previous_images.get(side)
         transition_duration, transition_file = self._play_transition(
@@ -758,10 +763,14 @@ class PlayerService:
         return (duration, None) if result.returncode == 0 else (0.0, None)
 
     # Hilfsfunktionen ----------------------------------------------------
-    def _prepare_image(self, path: pathlib.Path, side: str) -> Tuple[pathlib.Path, bool]:
+    def _prepare_image(
+        self, path: pathlib.Path, side: str, *, force_fullscreen: bool = False
+    ) -> Tuple[pathlib.Path, bool]:
         fit_mode = (self.config.playback.image_fit or "contain").lower()
         rotation = int(self.config.playback.image_rotation) % 360
-        target_width, target_height = self._target_size(side)
+        target_width, target_height = self._target_size(
+            side, force_fullscreen=force_fullscreen
+        )
 
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         needs_processing = rotation != 0 or fit_mode in {"contain", "stretch"}
@@ -795,9 +804,13 @@ class PlayerService:
 
         return image_path, True
 
-    def _target_size(self, side: str) -> Tuple[int, int]:
+    def _target_size(self, side: str, *, force_fullscreen: bool = False) -> Tuple[int, int]:
         width, height = self._parse_resolution()
-        if self.config.playback.splitscreen_enabled and side in {"primary", "secondary"}:
+        if (
+            not force_fullscreen
+            and self.config.playback.splitscreen_enabled
+            and side in {"primary", "secondary"}
+        ):
             ratio = int(self.config.playback.splitscreen_ratio or 50)
             ratio = max(10, min(90, ratio))
             left_width = max(1, (width * ratio) // 100)
@@ -939,4 +952,5 @@ class PlayerService:
             media_path=info_path.name,
             display_label=label,
             media_type="info",
+            force_fullscreen=True,
         )
