@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import io
 from dataclasses import asdict
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -38,6 +38,15 @@ CACHEABLE_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
 MOUNT_ROOT = (DATA_DIR / "mounts").resolve()
+
+PLAYLIST_CONTEXT_FULLSCREEN = "fullscreen"
+PLAYLIST_CONTEXT_SPLIT_LEFT = "splitscreen_left"
+PLAYLIST_CONTEXT_SPLIT_RIGHT = "splitscreen_right"
+PLAYLIST_CONTEXTS = (
+    PLAYLIST_CONTEXT_FULLSCREEN,
+    PLAYLIST_CONTEXT_SPLIT_LEFT,
+    PLAYLIST_CONTEXT_SPLIT_RIGHT,
+)
 
 
 def _paths_equal(left: pathlib.Path, right: pathlib.Path) -> bool:
@@ -99,28 +108,49 @@ class MediaManager:
         self._ensure_local_directories()
 
     # Zustandsabfragen -------------------------------------------------
-    def _disabled_media_pairs(self) -> set[Tuple[str, str]]:
-        pairs: set[Tuple[str, str]] = set()
-        entries = getattr(self.config.playback, "disabled_media", []) or []
+    def _disabled_media_entries(self, context: str) -> List[dict]:
+        disabled = getattr(self.config.playback, "disabled_media", {}) or {}
+        if isinstance(disabled, dict):
+            entries = disabled.get(context, []) or []
+        else:
+            # Rückfall für alte Konfigurationen ohne Kontexte
+            entries = disabled if context == PLAYLIST_CONTEXT_FULLSCREEN else []
+        result: List[dict] = []
         for entry in entries:
-            source: Optional[str]
-            path: Optional[str]
             if isinstance(entry, dict):
-                source = entry.get("source")
-                path = entry.get("path")
+                result.append(entry)
             elif isinstance(entry, PlaylistItem):
-                source = entry.source
-                path = entry.path
+                result.append({"source": entry.source, "path": entry.path})
             else:
-                source = getattr(entry, "source", None)
-                path = getattr(entry, "path", None)
-            normalized = self.normalize_media_entry(source, path)
+                result.append(
+                    {
+                        "source": getattr(entry, "source", None),
+                        "path": getattr(entry, "path", None),
+                    }
+                )
+        return result
+
+    def _disabled_media_pairs(self, context: str) -> set[Tuple[str, str]]:
+        pairs: set[Tuple[str, str]] = set()
+        for entry in self._disabled_media_entries(context):
+            normalized = self.normalize_media_entry(entry.get("source"), entry.get("path"))
             if normalized:
                 pairs.add(normalized)
         return pairs
 
-    def disabled_media_keys(self) -> set[str]:
-        return {f"{source}|{path}" for source, path in self._disabled_media_pairs()}
+    def disabled_media_keys(self, context: str = PLAYLIST_CONTEXT_FULLSCREEN) -> set[str]:
+        return {
+            f"{source}|{path}"
+            for source, path in self._disabled_media_pairs(context)
+        }
+
+    def disabled_media_keys_by_context(self) -> Dict[str, set[str]]:
+        return {
+            context: self.disabled_media_keys(context) for context in PLAYLIST_CONTEXTS
+        }
+
+    def playlist_contexts(self) -> Tuple[str, ...]:
+        return PLAYLIST_CONTEXTS
 
     def normalize_media_entry(
         self, source: Optional[str], path: Optional[str]
@@ -711,10 +741,19 @@ class MediaManager:
             )
         return items
 
-    def build_playlist(self) -> List[PlaylistItem]:
-        disabled = self._disabled_media_pairs()
+    def build_playlist(
+        self,
+        *,
+        include_disabled: bool = False,
+        context: str = PLAYLIST_CONTEXT_FULLSCREEN,
+    ) -> List[PlaylistItem]:
+        disabled = set()
+        if not include_disabled:
+            disabled = self._disabled_media_pairs(context)
         manual_items = [
-            item for item in self.config.playlist if (item.source, item.path) not in disabled
+            item
+            for item in self.config.playlist
+            if include_disabled or (item.source, item.path) not in disabled
         ]
         auto_items: List[PlaylistItem] = []
         seen = {(item.source, item.path) for item in manual_items}
@@ -759,10 +798,16 @@ class MediaManager:
         left_path: str,
         right_source: Optional[str],
         right_path: str,
+        *,
+        include_disabled: bool = False,
     ) -> tuple[List[PlaylistItem], List[PlaylistItem]]:
         left_items: List[PlaylistItem] = []
         right_items: List[PlaylistItem] = []
-        disabled = self._disabled_media_pairs()
+        disabled_left = set()
+        disabled_right = set()
+        if not include_disabled:
+            disabled_left = self._disabled_media_pairs(PLAYLIST_CONTEXT_SPLIT_LEFT)
+            disabled_right = self._disabled_media_pairs(PLAYLIST_CONTEXT_SPLIT_RIGHT)
 
         if left_source:
             source = self.config.get_source(left_source)
@@ -773,11 +818,15 @@ class MediaManager:
                     LOGGER.warning("Konnte linke Quelle %s nicht mounten: %s", left_source, exc)
                 else:
                     base = self._normalize_split_base(source, left_path)
-                    left_items = [
-                        item
-                        for item in self.scan_directory(source, base)
-                        if (item.source, item.path) not in disabled
-                    ]
+                    items = list(self.scan_directory(source, base))
+                    if include_disabled:
+                        left_items = items
+                    else:
+                        left_items = [
+                            item
+                            for item in items
+                            if (item.source, item.path) not in disabled_left
+                        ]
             else:
                 LOGGER.warning("Linke Quelle %s unbekannt", left_source)
 
@@ -790,11 +839,15 @@ class MediaManager:
                     LOGGER.warning("Konnte rechte Quelle %s nicht mounten: %s", right_source, exc)
                 else:
                     base = self._normalize_split_base(source, right_path)
-                    right_items = [
-                        item
-                        for item in self.scan_directory(source, base)
-                        if (item.source, item.path) not in disabled
-                    ]
+                    items = list(self.scan_directory(source, base))
+                    if include_disabled:
+                        right_items = items
+                    else:
+                        right_items = [
+                            item
+                            for item in items
+                            if (item.source, item.path) not in disabled_right
+                        ]
             else:
                 LOGGER.warning("Rechte Quelle %s unbekannt", right_source)
 
