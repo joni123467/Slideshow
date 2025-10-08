@@ -162,8 +162,29 @@ class MpvController:
 
     # Interne Helfer ---------------------------------------------------
     def _command(self, payload) -> Optional[dict]:
-        with self._lock:
-            return self._command_no_lock(payload)
+        for attempt in range(2):
+            with self._lock:
+                response = self._command_no_lock(payload)
+                if response is not None:
+                    return response
+                process_alive = self._process is not None and self._process.poll() is None
+                socket_ready = bool(self._socket_path and self._socket_path.exists())
+            if attempt == 0:
+                if process_alive:
+                    if socket_ready:
+                        LOGGER.warning(
+                            "mpv reagiert nicht mehr zuverlässig, starte Instanz neu"
+                        )
+                    else:
+                        LOGGER.warning(
+                            "mpv-IPC-Socket nicht verfügbar, starte Instanz neu"
+                        )
+                    self.stop()
+                if not self.start():
+                    break
+                continue
+            break
+        return None
 
     def _filtered_args(self) -> list[str]:
         if not self._extra_args:
