@@ -29,6 +29,7 @@ from . import __version__
 from .auth import PamAuthenticator, User
 from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
 from .logging_config import available_logs
+from .maintenance import DailyRebootScheduler, is_valid_daily_time
 from .media import (
     MediaManager,
     PLAYLIST_CONTEXT_FULLSCREEN,
@@ -88,12 +89,14 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     network_manager = NetworkManager(cfg)
     player = player_service or PlayerService(cfg)
     system_manager = SystemManager()
+    reboot_scheduler = DailyRebootScheduler(cfg.maintenance, system_manager)
 
     if cfg.playback.auto_start:
         player.start()
 
     app.extensions["player_service"] = player
     app.extensions["system_manager"] = system_manager
+    app.extensions["reboot_scheduler"] = reboot_scheduler
     app.config["SLIDESHOW_VERSION"] = __version__
     app.config["SLIDESHOW_THEME"] = cfg.ui.theme
 
@@ -516,6 +519,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             if branch not in branch_choices:
                 branch_choices.append(branch)
         service_status = system_manager.service_status()
+        next_reboot = reboot_scheduler.next_run()
         return render_template(
             "system.html",
             config=cfg,
@@ -525,6 +529,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
             service_active=service_active(service_status),
+            next_reboot=next_reboot,
         )
 
     @app.route("/system/theme", methods=["POST"])
@@ -542,6 +547,28 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             flash("Theme aktualisiert", "success")
         else:
             flash("Theme ist bereits aktiv", "info")
+        return redirect(url_for("system_settings"))
+
+    @app.route("/system/maintenance", methods=["POST"])
+    @pam_required
+    def update_maintenance_settings():
+        enabled = request.form.get("auto_reboot_enabled") in {"1", "true", "on"}
+        raw_time = (request.form.get("auto_reboot_time") or "").strip()
+        if not raw_time:
+            raw_time = cfg.maintenance.auto_reboot_time
+        if not is_valid_daily_time(raw_time):
+            flash("Ungültige Uhrzeit für den automatischen Neustart", "danger")
+            return redirect(url_for("system_settings"))
+
+        cfg.maintenance.auto_reboot_enabled = enabled
+        cfg.maintenance.auto_reboot_time = raw_time
+        cfg.save()
+        reboot_scheduler.update_schedule()
+
+        if enabled:
+            flash("Täglicher Neustart aktiviert", "success")
+        else:
+            flash("Täglicher Neustart deaktiviert", "info")
         return redirect(url_for("system_settings"))
 
     @app.route("/config/export")
@@ -585,6 +612,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         app.extensions["player_service"] = new_player
         player = new_player
         app.config["SLIDESHOW_THEME"] = cfg.ui.theme
+        reboot_scheduler.set_config(cfg.maintenance)
 
         if was_running or cfg.playback.auto_start:
             player.start()
@@ -930,6 +958,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "playlist": media_manager.serialize_playlist(),
             "network": network_manager.serialize(),
             "playback": dataclasses.asdict(cfg.playback),
+            "maintenance": dataclasses.asdict(cfg.maintenance),
         })
 
     @app.route("/api/player/<string:action>", methods=["POST"])

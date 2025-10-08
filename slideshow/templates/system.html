@@ -52,6 +52,27 @@
   </article>
 
   <article>
+    <h2>Automatischer Neustart</h2>
+    <form method="post" action="{{ url_for('update_maintenance_settings') }}" class="grid-form">
+      <label>
+        <input type="checkbox" name="auto_reboot_enabled" value="1" {% if config.maintenance.auto_reboot_enabled %}checked{% endif %} />
+        Täglichen Neustart aktivieren
+      </label>
+      <label>Uhrzeit (HH:MM)
+        <input type="time" name="auto_reboot_time" value="{{ config.maintenance.auto_reboot_time }}" required pattern="^([01]?\d|2[0-3]):[0-5]\d$" />
+      </label>
+      <button type="submit">Einstellungen speichern</button>
+    </form>
+    {% if next_reboot %}
+    <p class="muted">Nächster geplanter Neustart: <strong>{{ next_reboot.strftime('%d.%m.%Y %H:%M') }}</strong></p>
+    {% elif config.maintenance.auto_reboot_enabled %}
+    <p class="muted">Nächster Neustart wird berechnet …</p>
+    {% else %}
+    <p class="muted">Automatischer Neustart ist deaktiviert.</p>
+    {% endif %}
+  </article>
+
+  <article>
     <h2>Konfiguration</h2>
     <div class="button-row">
       <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>

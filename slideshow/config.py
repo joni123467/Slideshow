@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import threading
 import zipfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -100,7 +101,14 @@ DEFAULT_CONFIG = {
     "ui": {
         "theme": "mid",
     },
+    "maintenance": {
+        "auto_reboot_enabled": False,
+        "auto_reboot_time": "03:00",
+    },
 }
+
+
+TIME_PATTERN = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d$")
 
 _lock = threading.Lock()
 
@@ -207,6 +215,12 @@ class UIConfig:
 
 
 @dataclasses.dataclass
+class MaintenanceConfig:
+    auto_reboot_enabled: bool
+    auto_reboot_time: str
+
+
+@dataclasses.dataclass
 class AppConfig:
     media_sources: List[MediaSource]
     playlist: List[PlaylistItem]
@@ -214,6 +228,7 @@ class AppConfig:
     network: NetworkConfig
     server: ServerConfig
     ui: UIConfig
+    maintenance: MaintenanceConfig
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -233,6 +248,11 @@ class AppConfig:
         ui_raw = dict(config.get("ui") or {})
         ui_raw.setdefault("theme", DEFAULT_CONFIG["ui"]["theme"])
 
+        maintenance_raw = dict(config.get("maintenance") or {})
+        maintenance_raw.setdefault(
+            "auto_reboot_time", DEFAULT_CONFIG["maintenance"]["auto_reboot_time"]
+        )
+
         instance = cls(
             media_sources=[
                 MediaSource(
@@ -250,6 +270,7 @@ class AppConfig:
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
             ui=UIConfig(**ui_raw),
+            maintenance=MaintenanceConfig(**maintenance_raw),
         )
         instance.ensure_local_paths()
         return instance
@@ -262,6 +283,7 @@ class AppConfig:
             "network": dataclasses.asdict(self.network),
             "server": dataclasses.asdict(self.server),
             "ui": dataclasses.asdict(self.ui),
+            "maintenance": dataclasses.asdict(self.maintenance),
         }
         with _lock:
             CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
@@ -346,6 +368,23 @@ class AppConfig:
         if self.ui.theme not in allowed_themes:
             self.ui.theme = "mid"
             changed = True
+
+        if not _is_valid_time_string(self.maintenance.auto_reboot_time):
+            default_time = DEFAULT_CONFIG["maintenance"]["auto_reboot_time"]
+            LOGGER.warning(
+                "Ungültige Uhrzeit %s für automatischen Neustart, setze auf %s",
+                self.maintenance.auto_reboot_time,
+                default_time,
+            )
+            self.maintenance.auto_reboot_time = default_time
+            changed = True
+        else:
+            self.maintenance.auto_reboot_time = (
+                self.maintenance.auto_reboot_time.strip()
+            )
+        self.maintenance.auto_reboot_enabled = bool(
+            self.maintenance.auto_reboot_enabled
+        )
 
         if changed:
             self.save()
@@ -454,6 +493,12 @@ def _merge_dict(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, 
         else:
             result[key] = value
     return result
+
+
+def _is_valid_time_string(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    return bool(TIME_PATTERN.match(value.strip()))
 
 
 def save_secret(key: str, value: Any) -> None:
