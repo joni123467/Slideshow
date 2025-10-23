@@ -51,6 +51,8 @@ class PlayerService:
         self._display_state_event = threading.Event()
         self._display_active = True
         self._last_display_state: Optional[bool] = None
+        self._display_off_since: Optional[float] = None
+        self._display_off_grace = 5.0
         self._playlist_lock = threading.Lock()
         self._playlist_current: List[PlaylistItem] = []
         self._playlist_next: Optional[List[PlaylistItem]] = None
@@ -124,6 +126,11 @@ class PlayerService:
 
     def _on_display_state_changed(self, active: bool) -> None:
         self._display_active = bool(active)
+        if self._display_active:
+            self._display_off_since = None
+        else:
+            if self._display_off_since is None:
+                self._display_off_since = time.monotonic()
         self._display_state_event.set()
 
     def _run(self) -> None:
@@ -164,6 +171,13 @@ class PlayerService:
                     self._reload.set()
                 self._last_display_state = True
             else:
+                now = time.monotonic()
+                if self._display_off_since is None:
+                    self._display_off_since = now
+                if (now - self._display_off_since) < self._display_off_grace:
+                    if self._stop.wait(timeout=0.5):
+                        return False
+                    return True
                 if self._last_display_state is not False:
                     LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
                     self._stop_splitscreen_threads()
@@ -198,6 +212,13 @@ class PlayerService:
                 return True
 
         if not self._display_active:
+            now = time.monotonic()
+            if self._display_off_since is None:
+                self._display_off_since = now
+            if (now - self._display_off_since) < self._display_off_grace:
+                if self._stop.wait(timeout=0.5):
+                    return False
+                return True
             if self._stop.wait(timeout=1):
                 return False
             return True
