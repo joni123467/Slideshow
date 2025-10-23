@@ -18,10 +18,16 @@
     {% endwith %}
     <form class="login-form" method="post">
       <h1>Anmeldung</h1>
+      {% if login_error %}
+      <div class="form-message form-message--error" role="alert" aria-live="assertive">{{ login_error }}</div>
+      {% endif %}
       <label for="username">Benutzername</label>
-      <input type="text" id="username" name="username" value="{{ default_user }}" required />
+      <input type="text" id="username" name="username" value="{{ default_user }}" {% if not login_error %}autofocus{% endif %} required />
       <label for="password">Passwort</label>
-      <input type="password" id="password" name="password" required />
+      <input type="password" id="password" name="password" {% if login_error %}autofocus{% endif %} required />
+      {% if next_url %}
+      <input type="hidden" name="next" value="{{ next_url }}" />
+      {% endif %}
       <button type="submit">Anmelden</button>
       <p class="version-hint">Version {{ slideshow_version }}</p>
     </form>

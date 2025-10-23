@@ -661,6 +661,23 @@ table tr.playlist-disabled td {
   background: var(--flash-info);
 }
 
+.form-message {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  margin-bottom: 0.5rem;
+  color: var(--fg);
+}
+
+.form-message--error {
+  background: var(--flash-danger);
+}
+
+.form-help {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0.25rem 0 0.75rem;
+}
+
 .login-page {
   display: flex;
   align-items: center;
