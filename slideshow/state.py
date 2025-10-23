@@ -31,6 +31,7 @@ class PlaybackState:
     secondary_preview: Optional[str]
     info_screen: bool
     info_manual: bool
+    display_power: bool
 
 
 _state = PlaybackState(
@@ -50,6 +51,7 @@ _state = PlaybackState(
     secondary_preview=None,
     info_screen=False,
     info_manual=False,
+    display_power=True,
 )
 
 
@@ -77,6 +79,7 @@ def load_state() -> PlaybackState:
                 secondary_preview=data.get("secondary_preview"),
                 info_screen=data.get("info_screen", False),
                 info_manual=data.get("info_manual", False),
+                display_power=data.get("display_power", True),
             )
         except Exception:  # pragma: no cover - robust gegen defekte Dateien
             pass
@@ -150,6 +153,16 @@ def set_state(
 def get_state() -> PlaybackState:
     with _lock:
         return load_state()
+
+
+def set_display_power(active: bool) -> PlaybackState:
+    """Aktualisiert den erkannten Status der Anzeige."""
+
+    with _lock:
+        state = load_state()
+        state.display_power = bool(active)
+        save_state(state)
+        return state
 
 
 def set_manual_flag(enabled: bool) -> PlaybackState:

@@ -14,9 +14,10 @@ from typing import Dict, List, Optional, Tuple
 from PIL import Image
 
 from .config import AppConfig, PlaylistItem
+from .display import DisplayPowerMonitor
 from .info import InfoScreen
 from .media import MediaManager
-from .state import get_state, set_manual_flag, set_state
+from .state import get_state, set_display_power, set_manual_flag, set_state
 from .system import resolve_hostname, resolve_ip_addresses
 from .mpv_controller import MpvController
 
@@ -45,18 +46,36 @@ class PlayerService:
         self._controllers: Dict[str, MpvController] = {}
         self._controller_lock = threading.Lock()
         self._mpv_args = self._collect_mpv_args()
+        self._display_monitor = DisplayPowerMonitor()
+        self._display_state_event = threading.Event()
+        self._display_active = True
+        self._last_display_state: Optional[bool] = None
+        self._playlist_lock = threading.Lock()
+        self._playlist_current: List[PlaylistItem] = []
+        self._playlist_next: Optional[List[PlaylistItem]] = None
+        self._playlist_ready = threading.Event()
+        self._playlist_refresh = threading.Event()
+        self._playlist_thread: Optional[threading.Thread] = None
+        self._playlist_refresh_requested = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
         self._reload.clear()
+        self._display_state_event.clear()
+        self._last_display_state = None
+        current_display_state = self._display_monitor.start(self._on_display_state_changed)
+        self._display_active = bool(current_display_state)
         self._thread = threading.Thread(target=self._run, name="PlayerService", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
         self._reload.set()
+        self._display_state_event.set()
+        self._playlist_refresh.set()
+        self._display_monitor.stop()
         self._stop_splitscreen_threads()
         if self._thread:
             self._thread.join(timeout=5)
@@ -89,6 +108,7 @@ class PlayerService:
     def reload(self) -> None:
         self._mpv_args = self._collect_mpv_args()
         self._reload.set()
+        self._playlist_refresh.set()
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -101,11 +121,66 @@ class PlayerService:
         set_manual_flag(enabled)
         self.reload()
 
+    def _on_display_state_changed(self, active: bool) -> None:
+        self._display_active = bool(active)
+        self._display_state_event.set()
+
     def _run(self) -> None:
         LOGGER.info("Player thread started")
+        set_display_power(self._display_active)
         refresh_interval = max(5, int(self.config.playback.refresh_interval))
+        self._load_playlist_blocking()
+        self._start_playlist_worker()
         while not self._stop.is_set():
             manual_info = self._info_manual.is_set()
+
+            if self._display_state_event.is_set():
+                self._display_state_event.clear()
+                if self._display_active:
+                    if self._last_display_state is not True:
+                        LOGGER.info("Anzeige wieder aktiv – Wiedergabe wird fortgesetzt")
+                    set_display_power(True)
+                    if self._last_display_state is False:
+                        self._reload.set()
+                    self._last_display_state = True
+                else:
+                    if self._last_display_state is not False:
+                        LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
+                        self._stop_splitscreen_threads()
+                        self._stop_all_controllers()
+                        self._reload.clear()
+                        info_manual = self._info_manual.is_set()
+                        set_state(
+                            None,
+                            "display-off",
+                            info_screen=False,
+                            info_manual=info_manual,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                        set_state(
+                            None,
+                            "display-off",
+                            side="secondary",
+                            info_screen=False,
+                            info_manual=info_manual,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                    set_display_power(False)
+                    self._last_display_state = False
+                    if self._stop.wait(timeout=1):
+                        break
+                    continue
+
+            if not self._display_active:
+                if self._stop.wait(timeout=1):
+                    break
+                continue
 
             if self.config.playback.splitscreen_enabled:
                 if manual_info:
@@ -179,7 +254,10 @@ class PlayerService:
             self._stop_splitscreen_threads()
             self._controller_for_side("primary", None)
             self._stop_controller("secondary")
-            playlist = self.manager.build_playlist()
+            if self._reload.is_set():
+                self._load_playlist_blocking()
+                self._reload.clear()
+            playlist = self._current_playlist_copy()
             if manual_info or not playlist:
                 if self.config.playback.info_screen_enabled:
                     if manual_info:
@@ -208,20 +286,24 @@ class PlayerService:
                         preview_path=None,
                     )
                     time.sleep(refresh_interval)
+                self._apply_ready_playlist()
                 self._reload.clear()
                 continue
 
+            self._request_playlist_refresh()
             for item in playlist:
                 if self._stop.is_set() or self._reload.is_set():
                     break
                 if self._info_manual.is_set():
                     break
                 self._play_item(item)
+            self._apply_ready_playlist()
             self._reload.clear()
 
         self._stop_splitscreen_threads()
         self._stop_all_controllers()
         self._cleanup_tempdir()
+        self._stop_playlist_worker()
         LOGGER.info("Player thread stopped")
 
     # Splitscreen ---------------------------------------------------------
@@ -427,6 +509,77 @@ class PlayerService:
             controller.stop()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
+
+    def _start_playlist_worker(self) -> None:
+        if self._playlist_thread and self._playlist_thread.is_alive():
+            return
+        self._playlist_thread = threading.Thread(
+            target=self._playlist_worker,
+            name="PlaylistRefresh",
+            daemon=True,
+        )
+        self._playlist_thread.start()
+
+    def _stop_playlist_worker(self) -> None:
+        if not self._playlist_thread:
+            return
+        self._playlist_refresh.set()
+        self._playlist_thread.join(timeout=5)
+        self._playlist_thread = None
+        self._playlist_ready.clear()
+        self._playlist_refresh_requested = False
+
+    def _playlist_worker(self) -> None:
+        LOGGER.debug("Playlist-Refresh-Thread gestartet")
+        try:
+            while not self._stop.is_set():
+                interval = max(5, int(self.config.playback.refresh_interval))
+                triggered = self._playlist_refresh.wait(timeout=interval)
+                self._playlist_refresh.clear()
+                if self._stop.is_set():
+                    break
+                try:
+                    playlist = self.manager.build_playlist()
+                except Exception:
+                    LOGGER.exception("Konnte Playlist im Hintergrund nicht aktualisieren")
+                    if self._stop.wait(timeout=2):
+                        break
+                    continue
+                with self._playlist_lock:
+                    self._playlist_next = playlist
+                self._playlist_ready.set()
+                if triggered:
+                    LOGGER.debug("Playlist-Refresh ausgelöst")
+        finally:
+            LOGGER.debug("Playlist-Refresh-Thread beendet")
+
+    def _load_playlist_blocking(self) -> None:
+        playlist = self.manager.build_playlist()
+        with self._playlist_lock:
+            self._playlist_current = playlist
+            self._playlist_next = None
+        self._playlist_ready.clear()
+        self._playlist_refresh_requested = False
+
+    def _current_playlist_copy(self) -> List[PlaylistItem]:
+        with self._playlist_lock:
+            return list(self._playlist_current)
+
+    def _apply_ready_playlist(self) -> None:
+        if not self._playlist_ready.is_set():
+            return
+        self._playlist_ready.clear()
+        with self._playlist_lock:
+            if self._playlist_next is not None:
+                self._playlist_current = self._playlist_next
+                self._playlist_next = None
+        self._playlist_refresh_requested = False
+
+    def _request_playlist_refresh(self) -> None:
+        if self._playlist_thread and self._playlist_thread.is_alive():
+            if not self._playlist_refresh_requested:
+                self._playlist_refresh_requested = True
+                self._playlist_refresh.set()
 
     def _state_side(self, side: str) -> str:
         return "primary" if side == "left" else "secondary"

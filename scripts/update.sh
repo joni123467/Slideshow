@@ -21,6 +21,7 @@ configure_lightdm_autologin() {
 autologin-user=$user
 autologin-user-timeout=0
 autologin-session=lightdm-autologin
+xserver-command=X -s 0 -dpms
 CONF
     echo "LightDM-Autologin für $user aktualisiert."
   else
@@ -99,6 +100,7 @@ render_systemd_unit() {
       echo "$env"
     done
     echo "ExecStartPre=/bin/sh -c 'DISPLAY=:0 XAUTHORITY=$xauthority_path xset q >/dev/null 2>&1 || true'"
+    echo "ExecStartPre=$APP_DIR/scripts/desktop_keepalive.sh"
     echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
     echo "ExecStartPost=/bin/sh -c 'echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet\" | systemd-cat -t slideshow'"
     echo "Restart=always"
@@ -161,6 +163,9 @@ if [[ -f "$APP_DIR/scripts/mount_smb.sh" ]]; then
 fi
 if [[ -f "$APP_DIR/scripts/update.sh" ]]; then
   chmod +x "$APP_DIR/scripts/update.sh"
+fi
+if [[ -f "$APP_DIR/scripts/desktop_keepalive.sh" ]]; then
+  chmod +x "$APP_DIR/scripts/desktop_keepalive.sh"
 fi
 
 if [[ -f "$APP_DIR/pyproject.toml" ]]; then

@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 import logging
 import threading
-from typing import Optional
+from typing import List, Optional
 
 from .config import MaintenanceConfig, _is_valid_time_string
 
@@ -98,20 +98,49 @@ class DailyRebootScheduler:
     def _compute_next_run(self) -> Optional[datetime.datetime]:
         if not self._config.auto_reboot_enabled:
             return None
-        reboot_time = _parse_daily_time(self._config.auto_reboot_time)
-        if reboot_time is None:
+        reboot_times = self._configured_times()
+        if not reboot_times:
             return None
 
         now = datetime.datetime.now()
-        candidate = now.replace(
-            hour=reboot_time.hour,
-            minute=reboot_time.minute,
+        threshold = now + datetime.timedelta(seconds=5)
+
+        for reboot_time in reboot_times:
+            candidate = now.replace(
+                hour=reboot_time.hour,
+                minute=reboot_time.minute,
+                second=0,
+                microsecond=0,
+            )
+            if candidate > threshold:
+                return candidate
+
+        first_time = reboot_times[0]
+        next_day = now + datetime.timedelta(days=1)
+        return next_day.replace(
+            hour=first_time.hour,
+            minute=first_time.minute,
             second=0,
             microsecond=0,
         )
-        if candidate <= now + datetime.timedelta(seconds=5):
-            candidate += datetime.timedelta(days=1)
-        return candidate
+
+    def _configured_times(self) -> List[datetime.time]:
+        """Liefert alle gültigen Uhrzeiten für geplante Neustarts."""
+
+        raw_times = list(getattr(self._config, "auto_reboot_times", []) or [])
+        if not raw_times:
+            fallback = getattr(self._config, "auto_reboot_time", "") or ""
+            if fallback:
+                raw_times.append(fallback)
+
+        parsed_times: List[datetime.time] = []
+        for entry in raw_times:
+            parsed = _parse_daily_time(str(entry))
+            if parsed and parsed not in parsed_times:
+                parsed_times.append(parsed)
+
+        parsed_times.sort()
+        return parsed_times
 
 
 __all__ = ["DailyRebootScheduler", "is_valid_daily_time"]

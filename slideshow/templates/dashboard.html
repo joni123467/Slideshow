@@ -12,6 +12,9 @@
       <span data-status="service" class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
         {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
       </span>
+      <span data-status="display" class="status-indicator {% if state and state.display_power %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+        {% if state and state.display_power %}Anzeige aktiv{% else %}Anzeige aus{% endif %}
+      </span>
       <span data-status="info" class="status-indicator {% if state and state.info_screen %}status-indicator--info{% else %}status-indicator--neutral{% endif %}">
         {% if state and state.info_screen %}Infobildschirm aktiv{% else %}Infobildschirm aus{% endif %}
       </span>
@@ -232,6 +235,7 @@
 
     const statusIndicators = {
       service: document.querySelector('[data-status="service"]'),
+      display: document.querySelector('[data-status="display"]'),
       info: document.querySelector('[data-status="info"]'),
     };
 
@@ -343,6 +347,7 @@
         updatePreview('secondary', data.secondary_preview_available, data.secondary_preview_token, data.secondary_media_type);
 
         setIndicator(statusIndicators.service, Boolean(data.service_active), 'status-indicator--ok', 'status-indicator--down', 'Dienst läuft', 'Dienst ist inaktiv');
+        setIndicator(statusIndicators.display, data.display_power !== false, 'status-indicator--ok', 'status-indicator--down', 'Anzeige aktiv', 'Anzeige aus');
         setIndicator(statusIndicators.info, Boolean(data.info_screen), 'status-indicator--info', 'status-indicator--neutral', 'Infobildschirm aktiv', 'Infobildschirm aus');
       } catch (err) {
         console.debug('Status konnte nicht aktualisiert werden', err);
