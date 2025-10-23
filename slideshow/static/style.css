@@ -593,6 +593,11 @@ table tr.playlist-disabled td {
   cursor: not-allowed;
 }
 
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .table-actions .button-link {
   margin-top: 0;
 }

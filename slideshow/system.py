@@ -211,6 +211,19 @@ class SystemManager:
             return "".join(content)
         return "".join(content[-lines:])
 
+    def clear_log(self, name: str) -> None:
+        logs = self.available_logs()
+        path = logs.get(name)
+        if not path:
+            raise ValueError("Unbekanntes Log")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w", encoding="utf-8"):
+                pass
+        except OSError as exc:
+            LOGGER.error("Konnte Log %s nicht leeren: %s", name, exc)
+            raise
+
     # Helpers ---------------------------------------------------------
     def _detect_resolution_from_xrandr(self) -> Optional[str]:
         try:

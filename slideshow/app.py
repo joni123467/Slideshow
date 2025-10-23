@@ -727,6 +727,17 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
+    @app.route("/logs/<string:name>/clear", methods=["POST"])
+    @pam_required
+    def clear_log(name: str):
+        try:
+            system_manager.clear_log(name)
+        except ValueError:
+            abort(404)
+        except OSError:
+            return jsonify({"error": "Konnte Log nicht leeren."}), 500
+        return ("", 204)
+
     @app.route("/playlist/<int:index>/delete", methods=["POST"])
     @pam_required
     def playlist_delete(index: int):

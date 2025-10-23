@@ -170,57 +170,51 @@ class PlayerService:
                 if self._last_display_state is False:
                     self._reload.set()
                 self._last_display_state = True
+                self._display_off_since = None
             else:
-                now = time.monotonic()
                 if self._display_off_since is None:
-                    self._display_off_since = now
-                if (now - self._display_off_since) < self._display_off_grace:
-                    if self._stop.wait(timeout=0.5):
-                        return False
-                    return True
-                if self._last_display_state is not False:
-                    LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
-                    self._stop_splitscreen_threads()
-                    self._stop_all_controllers()
-                    self._reload.clear()
-                    info_manual = self._info_manual.is_set()
-                    set_state(
-                        None,
-                        "display-off",
-                        info_screen=False,
-                        info_manual=info_manual,
-                        source=None,
-                        media_path=None,
-                        media_type=None,
-                        preview_path=None,
-                    )
-                    set_state(
-                        None,
-                        "display-off",
-                        side="secondary",
-                        info_screen=False,
-                        info_manual=info_manual,
-                        source=None,
-                        media_path=None,
-                        media_type=None,
-                        preview_path=None,
-                    )
-                set_display_power(False)
-                self._last_display_state = False
-                if self._stop.wait(timeout=1):
-                    return False
-                return True
+                    self._display_off_since = time.monotonic()
 
         if not self._display_active:
             now = time.monotonic()
             if self._display_off_since is None:
                 self._display_off_since = now
-            if (now - self._display_off_since) < self._display_off_grace:
+            elapsed = now - self._display_off_since
+            if elapsed < self._display_off_grace:
                 if self._stop.wait(timeout=0.5):
                     return False
                 return True
+            if self._last_display_state is not False:
+                LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
+                self._stop_splitscreen_threads()
+                self._stop_all_controllers()
+                self._reload.clear()
+                info_manual = self._info_manual.is_set()
+                set_state(
+                    None,
+                    "display-off",
+                    info_screen=False,
+                    info_manual=info_manual,
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
+                )
+                set_state(
+                    None,
+                    "display-off",
+                    side="secondary",
+                    info_screen=False,
+                    info_manual=info_manual,
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
+                )
             if self._stop.wait(timeout=1):
                 return False
+            set_display_power(False)
+            self._last_display_state = False
             return True
 
         if self.config.playback.splitscreen_enabled:
