@@ -24,6 +24,7 @@ from flask import (
     url_for,
 )
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from urllib.parse import urlparse
 
 from . import __version__
 from .auth import PamAuthenticator, User
@@ -160,15 +161,40 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     # Views -------------------------------------------------------------
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        next_url = request.args.get("next") or request.form.get("next") or ""
+        if next_url and urlparse(next_url).netloc:
+            next_url = ""
+
+        username_value = (request.args.get("username") or "").strip()
+        if not username_value:
+            username_value = authenticator.default_user() or ""
+
+        login_error: Optional[str] = None
+
         if request.method == "POST":
-            username = request.form.get("username")
-            password = request.form.get("password")
-            if authenticator.authenticate(username, password):
-                login_user(User(username=username))
+            form_username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+            if form_username:
+                username_value = form_username
+
+            if authenticator.authenticate(username_value, password):
+                login_user(User(username=username_value))
                 flash("Login erfolgreich", "success")
-                return redirect(url_for("dashboard"))
-            flash("Login fehlgeschlagen", "danger")
-        return render_template("login.html", default_user=authenticator.default_user())
+                destination = next_url or url_for("dashboard")
+                return redirect(destination)
+
+            login_error = "Anmeldung fehlgeschlagen. Bitte Zugangsdaten prüfen."
+
+        status_code = 401 if login_error else 200
+        return (
+            render_template(
+                "login.html",
+                default_user=username_value,
+                login_error=login_error,
+                next_url=next_url,
+            ),
+            status_code,
+        )
 
     @app.route("/logout")
     @login_required
@@ -527,6 +553,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         service_status = system_manager.service_status()
         state = get_state()
         next_reboot = reboot_scheduler.next_run()
+        scheduled_times = reboot_scheduler.configured_times()
         return render_template(
             "system.html",
             config=cfg,
@@ -538,6 +565,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             service_active=service_active(service_status),
             state=state,
             next_reboot=next_reboot,
+            scheduled_times=scheduled_times,
         )
 
     @app.route("/system/theme", methods=["POST"])
@@ -606,7 +634,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 "auto_reboot_time"
             ]
         cfg.save()
-        reboot_scheduler.update_schedule()
+        reboot_scheduler.set_config(dataclasses.replace(cfg.maintenance))
 
         if enabled:
             flash("Täglicher Neustart aktiviert", "success")
