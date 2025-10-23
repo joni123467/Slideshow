@@ -131,144 +131,89 @@ class PlayerService:
         refresh_interval = max(5, int(self.config.playback.refresh_interval))
         self._load_playlist_blocking()
         self._start_playlist_worker()
-        while not self._stop.is_set():
-            manual_info = self._info_manual.is_set()
-
-            if self._display_state_event.is_set():
-                self._display_state_event.clear()
-                if self._display_active:
-                    if self._last_display_state is not True:
-                        LOGGER.info("Anzeige wieder aktiv – Wiedergabe wird fortgesetzt")
-                    set_display_power(True)
-                    if self._last_display_state is False:
-                        self._reload.set()
-                    self._last_display_state = True
-                else:
-                    if self._last_display_state is not False:
-                        LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
-                        self._stop_splitscreen_threads()
-                        self._stop_all_controllers()
-                        self._reload.clear()
-                        info_manual = self._info_manual.is_set()
-                        set_state(
-                            None,
-                            "display-off",
-                            info_screen=False,
-                            info_manual=info_manual,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                        set_state(
-                            None,
-                            "display-off",
-                            side="secondary",
-                            info_screen=False,
-                            info_manual=info_manual,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                    set_display_power(False)
-                    self._last_display_state = False
-                    if self._stop.wait(timeout=1):
+        try:
+            while not self._stop.is_set():
+                try:
+                    if not self._run_iteration(refresh_interval):
                         break
-                    continue
-
-            if not self._display_active:
-                if self._stop.wait(timeout=1):
-                    break
-                continue
-
-            if self.config.playback.splitscreen_enabled:
-                if manual_info:
+                except Exception:
+                    LOGGER.exception("Unerwarteter Fehler in Player-Hauptschleife")
                     self._stop_splitscreen_threads()
-                    self._stop_controller("secondary")
-                    self._reload.clear()
-                    if self.config.playback.info_screen_enabled:
-                        self._display_info_screen(manual=True)
-                    else:
-                        set_state(
-                            None,
-                            "idle",
-                            info_screen=False,
-                            info_manual=True,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                        set_state(
-                            None,
-                            "stopped",
-                            side="secondary",
-                            info_screen=False,
-                            info_manual=True,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                        time.sleep(refresh_interval)
-                    continue
-
-                has_content = self._ensure_splitscreen_running()
-                if not has_content:
-                    if self.config.playback.info_screen_enabled:
-                        self._display_info_screen(manual=False)
-                    else:
-                        set_state(
-                            None,
-                            "idle",
-                            info_screen=False,
-                            info_manual=False,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                        set_state(
-                            None,
-                            "stopped",
-                            side="secondary",
-                            info_screen=False,
-                            info_manual=False,
-                            source=None,
-                            media_path=None,
-                            media_type=None,
-                            preview_path=None,
-                        )
-                        time.sleep(refresh_interval)
-                    self._reload.clear()
-                    continue
-
-                # Warte auf Reload/Stop, prüfe regelmäßig auf Info-Screen
-                if self._reload.wait(timeout=1):
-                    self._reload.clear()
-                    self._stop_splitscreen_threads()
-                continue
-
-            # Einzelbildschirmmodus -------------------------------------
+                    self._stop_all_controllers()
+                    self._reload.set()
+                    if self._stop.wait(timeout=2):
+                        break
+        finally:
             self._stop_splitscreen_threads()
-            self._controller_for_side("primary", None)
-            self._stop_controller("secondary")
-            if self._reload.is_set():
-                self._load_playlist_blocking()
+            self._stop_all_controllers()
+            self._cleanup_tempdir()
+            self._stop_playlist_worker()
+            LOGGER.info("Player thread stopped")
+
+    def _run_iteration(self, refresh_interval: int) -> bool:
+        manual_info = self._info_manual.is_set()
+
+        if self._display_state_event.is_set():
+            self._display_state_event.clear()
+            if self._display_active:
+                if self._last_display_state is not True:
+                    LOGGER.info("Anzeige wieder aktiv – Wiedergabe wird fortgesetzt")
+                set_display_power(True)
+                if self._last_display_state is False:
+                    self._reload.set()
+                self._last_display_state = True
+            else:
+                if self._last_display_state is not False:
+                    LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
+                    self._stop_splitscreen_threads()
+                    self._stop_all_controllers()
+                    self._reload.clear()
+                    info_manual = self._info_manual.is_set()
+                    set_state(
+                        None,
+                        "display-off",
+                        info_screen=False,
+                        info_manual=info_manual,
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
+                    )
+                    set_state(
+                        None,
+                        "display-off",
+                        side="secondary",
+                        info_screen=False,
+                        info_manual=info_manual,
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
+                    )
+                set_display_power(False)
+                self._last_display_state = False
+                if self._stop.wait(timeout=1):
+                    return False
+                return True
+
+        if not self._display_active:
+            if self._stop.wait(timeout=1):
+                return False
+            return True
+
+        if self.config.playback.splitscreen_enabled:
+            if manual_info:
+                self._stop_splitscreen_threads()
+                self._stop_controller("secondary")
                 self._reload.clear()
-            playlist = self._current_playlist_copy()
-            if manual_info or not playlist:
                 if self.config.playback.info_screen_enabled:
-                    if manual_info:
-                        self._reload.clear()
-                    self._display_info_screen(manual=manual_info)
+                    self._display_info_screen(manual=True)
                 else:
                     set_state(
                         None,
                         "idle",
                         info_screen=False,
-                        info_manual=manual_info,
+                        info_manual=True,
                         source=None,
                         media_path=None,
                         media_type=None,
@@ -279,32 +224,108 @@ class PlayerService:
                         "stopped",
                         side="secondary",
                         info_screen=False,
-                        info_manual=manual_info,
+                        info_manual=True,
                         source=None,
                         media_path=None,
                         media_type=None,
                         preview_path=None,
                     )
                     time.sleep(refresh_interval)
-                self._apply_ready_playlist()
-                self._reload.clear()
-                continue
+                return True
 
-            self._request_playlist_refresh()
-            for item in playlist:
-                if self._stop.is_set() or self._reload.is_set():
-                    break
-                if self._info_manual.is_set():
-                    break
-                self._play_item(item)
-            self._apply_ready_playlist()
-            self._reload.clear()
+            has_content = self._ensure_splitscreen_running()
+            if not has_content:
+                if self.config.playback.info_screen_enabled:
+                    self._display_info_screen(manual=False)
+                else:
+                    set_state(
+                        None,
+                        "idle",
+                        info_screen=False,
+                        info_manual=False,
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
+                    )
+                    set_state(
+                        None,
+                        "stopped",
+                        side="secondary",
+                        info_screen=False,
+                        info_manual=False,
+                        source=None,
+                        media_path=None,
+                        media_type=None,
+                        preview_path=None,
+                    )
+                    time.sleep(refresh_interval)
+                self._reload.clear()
+                return True
+
+            if self._reload.wait(timeout=1):
+                self._reload.clear()
+                self._stop_splitscreen_threads()
+            return True
 
         self._stop_splitscreen_threads()
-        self._stop_all_controllers()
-        self._cleanup_tempdir()
-        self._stop_playlist_worker()
-        LOGGER.info("Player thread stopped")
+        self._controller_for_side("primary", None)
+        self._stop_controller("secondary")
+        if self._reload.is_set():
+            self._load_playlist_blocking()
+            self._reload.clear()
+        playlist = self._current_playlist_copy()
+        if manual_info or not playlist:
+            if self.config.playback.info_screen_enabled:
+                if manual_info:
+                    self._reload.clear()
+                self._display_info_screen(manual=manual_info)
+            else:
+                self._show_idle_placeholder(refresh_interval)
+                set_state(
+                    None,
+                    "stopped",
+                    side="secondary",
+                    info_screen=False,
+                    info_manual=manual_info,
+                    source=None,
+                    media_path=None,
+                    media_type=None,
+                    preview_path=None,
+                )
+            self._apply_ready_playlist()
+            self._reload.clear()
+            return True
+
+        self._request_playlist_refresh()
+        for item in playlist:
+            if self._stop.is_set() or self._reload.is_set():
+                break
+            if self._info_manual.is_set():
+                break
+            try:
+                self._play_item(item)
+            except Exception:
+                LOGGER.exception("Fehler bei der Wiedergabe von %s", item)
+                if self._stop.wait(timeout=2):
+                    break
+        self._apply_ready_playlist()
+        self._reload.clear()
+        return True
+
+    def _show_idle_placeholder(self, duration: int) -> None:
+        placeholder = self._idle_placeholder_path()
+        self._show_image(
+            placeholder,
+            duration,
+            side="primary",
+            source="system",
+            media_path=placeholder.name,
+            display_label=f"system/{placeholder.name}",
+            media_type="idle",
+            end_status="idle",
+            force_fullscreen=True,
+        )
 
     # Splitscreen ---------------------------------------------------------
     class _SplitWorker(threading.Thread):
@@ -351,11 +372,18 @@ class PlayerService:
                     or self.service._info_manual.is_set()
                 ):
                     break
-                self.service._play_item(
-                    item,
-                    side=state_side,
-                    geometry=self.geometry,
-                )
+                try:
+                    self.service._play_item(
+                        item,
+                        side=state_side,
+                        geometry=self.geometry,
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Fehler in Splitscreen-Wiedergabe (%s)", self.side
+                    )
+                    if self._stop.wait(timeout=2):
+                        break
 
             set_state(
                 None,
@@ -554,7 +582,11 @@ class PlayerService:
             LOGGER.debug("Playlist-Refresh-Thread beendet")
 
     def _load_playlist_blocking(self) -> None:
-        playlist = self.manager.build_playlist()
+        try:
+            playlist = self.manager.build_playlist()
+        except Exception:
+            LOGGER.exception("Konnte Playlist nicht laden")
+            return
         with self._playlist_lock:
             self._playlist_current = playlist
             self._playlist_next = None
@@ -916,6 +948,15 @@ class PlayerService:
         return (duration, None) if result.returncode == 0 else (0.0, None)
 
     # Hilfsfunktionen ----------------------------------------------------
+    def _idle_placeholder_path(self) -> pathlib.Path:
+        placeholder = self._temp_dir / "idle-placeholder.jpg"
+        if not placeholder.exists():
+            self._temp_dir.mkdir(parents=True, exist_ok=True)
+            width, height = self._target_size("primary", force_fullscreen=True)
+            image = Image.new("RGB", (width, height), color="black")
+            image.save(placeholder, format="JPEG", quality=85)
+        return placeholder
+
     def _prepare_image(
         self, path: pathlib.Path, side: str, *, force_fullscreen: bool = False
     ) -> Tuple[pathlib.Path, bool]:
