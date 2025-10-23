@@ -104,6 +104,7 @@ DEFAULT_CONFIG = {
     "maintenance": {
         "auto_reboot_enabled": False,
         "auto_reboot_time": "03:00",
+        "auto_reboot_times": [],
     },
 }
 
@@ -111,6 +112,47 @@ DEFAULT_CONFIG = {
 TIME_PATTERN = re.compile(r"^(?:[01]?\d|2[0-3]):[0-5]\d$")
 
 _lock = threading.Lock()
+
+
+def _time_sort_key(value: str) -> Tuple[int, int]:
+    hours, minutes = value.split(":", 1)
+    return int(hours), int(minutes)
+
+
+def _normalize_time_list(
+    value: Any, fallback: Optional[str] = None, *, include_fallback: bool = False
+) -> List[str]:
+    """Bringt eine Liste geplanter Neustartzeiten in ein konsistentes Format."""
+
+    candidates: Iterable[Any]
+    if isinstance(value, (list, tuple, set)):
+        candidates = value
+    elif isinstance(value, str):
+        candidates = [value]
+    else:
+        candidates = []
+
+    times: List[str] = []
+    for item in candidates:
+        if item is None:
+            continue
+        text = str(item).strip()
+        if not text:
+            continue
+        if _is_valid_time_string(text):
+            times.append(text)
+
+    if include_fallback and not times and fallback and _is_valid_time_string(fallback):
+        times.append(fallback.strip())
+
+    unique: List[str] = []
+    seen = set()
+    for time_value in sorted(times, key=_time_sort_key):
+        if time_value in seen:
+            continue
+        seen.add(time_value)
+        unique.append(time_value)
+    return unique
 
 
 def _normalize_disabled_entry(entry) -> Optional[Dict[str, str]]:
@@ -218,6 +260,7 @@ class UIConfig:
 class MaintenanceConfig:
     auto_reboot_enabled: bool
     auto_reboot_time: str
+    auto_reboot_times: List[str]
 
 
 @dataclasses.dataclass
@@ -252,6 +295,23 @@ class AppConfig:
         maintenance_raw.setdefault(
             "auto_reboot_time", DEFAULT_CONFIG["maintenance"]["auto_reboot_time"]
         )
+        has_times_field = "auto_reboot_times" in maintenance_raw
+        maintenance_raw.setdefault("auto_reboot_times", [])
+        maintenance_raw["auto_reboot_times"] = _normalize_time_list(
+            maintenance_raw.get("auto_reboot_times"),
+            maintenance_raw.get("auto_reboot_time"),
+            include_fallback=not has_times_field,
+        )
+        if maintenance_raw["auto_reboot_times"]:
+            maintenance_raw["auto_reboot_time"] = maintenance_raw["auto_reboot_times"][0]
+        else:
+            raw_time = (maintenance_raw.get("auto_reboot_time") or "").strip()
+            if _is_valid_time_string(raw_time):
+                maintenance_raw["auto_reboot_time"] = raw_time
+            else:
+                maintenance_raw["auto_reboot_time"] = DEFAULT_CONFIG["maintenance"][
+                    "auto_reboot_time"
+                ]
 
         instance = cls(
             media_sources=[
@@ -369,19 +429,37 @@ class AppConfig:
             self.ui.theme = "mid"
             changed = True
 
-        if not _is_valid_time_string(self.maintenance.auto_reboot_time):
+        normalized_times = _normalize_time_list(
+            self.maintenance.auto_reboot_times,
+            include_fallback=False,
+        )
+        if normalized_times != self.maintenance.auto_reboot_times:
+            self.maintenance.auto_reboot_times = normalized_times
+            changed = True
+
+        sanitized_time = (self.maintenance.auto_reboot_time or "").strip()
+        if normalized_times:
+            primary_time = normalized_times[0]
+        elif _is_valid_time_string(sanitized_time):
+            primary_time = sanitized_time
+        else:
             default_time = DEFAULT_CONFIG["maintenance"]["auto_reboot_time"]
-            LOGGER.warning(
-                "Ungültige Uhrzeit %s für automatischen Neustart, setze auf %s",
-                self.maintenance.auto_reboot_time,
-                default_time,
-            )
-            self.maintenance.auto_reboot_time = default_time
+            if sanitized_time:
+                LOGGER.warning(
+                    "Ungültige Uhrzeit %s für automatischen Neustart, setze auf %s",
+                    sanitized_time,
+                    default_time,
+                )
+            primary_time = default_time
+            sanitized_time = primary_time
+            changed = True
+
+        if primary_time != sanitized_time:
+            self.maintenance.auto_reboot_time = primary_time
             changed = True
         else:
-            self.maintenance.auto_reboot_time = (
-                self.maintenance.auto_reboot_time.strip()
-            )
+            self.maintenance.auto_reboot_time = sanitized_time
+
         self.maintenance.auto_reboot_enabled = bool(
             self.maintenance.auto_reboot_enabled
         )

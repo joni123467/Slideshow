@@ -27,7 +27,13 @@ from flask_login import LoginManager, current_user, login_required, login_user, 
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
+from .config import (
+    DEFAULT_CONFIG,
+    AppConfig,
+    PlaylistItem,
+    export_config_bundle,
+    import_config_bundle,
+)
 from .logging_config import available_logs
 from .maintenance import DailyRebootScheduler, is_valid_daily_time
 from .media import (
@@ -519,6 +525,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             if branch not in branch_choices:
                 branch_choices.append(branch)
         service_status = system_manager.service_status()
+        state = get_state()
         next_reboot = reboot_scheduler.next_run()
         return render_template(
             "system.html",
@@ -529,6 +536,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
             service_active=service_active(service_status),
+            state=state,
             next_reboot=next_reboot,
         )
 
@@ -553,15 +561,50 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def update_maintenance_settings():
         enabled = request.form.get("auto_reboot_enabled") in {"1", "true", "on"}
-        raw_time = (request.form.get("auto_reboot_time") or "").strip()
-        if not raw_time:
-            raw_time = cfg.maintenance.auto_reboot_time
-        if not is_valid_daily_time(raw_time):
-            flash("Ungültige Uhrzeit für den automatischen Neustart", "danger")
+        raw_times = request.form.getlist("auto_reboot_times")
+        normalized: List[str] = []
+        seen = set()
+        invalid_entries: List[str] = []
+
+        for raw_time in raw_times:
+            candidate = (raw_time or "").strip()
+            if not candidate:
+                continue
+            if not is_valid_daily_time(candidate):
+                invalid_entries.append(candidate)
+                continue
+            try:
+                hours, minutes = candidate.split(":", 1)
+                formatted = f"{int(hours):02d}:{int(minutes):02d}"
+            except ValueError:
+                invalid_entries.append(candidate)
+                continue
+            if formatted not in seen:
+                seen.add(formatted)
+                normalized.append(formatted)
+
+        normalized.sort()
+
+        if invalid_entries:
+            flash(
+                "Ungültige Uhrzeiten: "
+                + ", ".join(sorted({entry for entry in invalid_entries})),
+                "danger",
+            )
+            return redirect(url_for("system_settings"))
+
+        if enabled and not normalized:
+            flash("Bitte mindestens eine gültige Uhrzeit hinterlegen", "danger")
             return redirect(url_for("system_settings"))
 
         cfg.maintenance.auto_reboot_enabled = enabled
-        cfg.maintenance.auto_reboot_time = raw_time
+        cfg.maintenance.auto_reboot_times = normalized
+        if normalized:
+            cfg.maintenance.auto_reboot_time = normalized[0]
+        elif not is_valid_daily_time(cfg.maintenance.auto_reboot_time):
+            cfg.maintenance.auto_reboot_time = DEFAULT_CONFIG["maintenance"][
+                "auto_reboot_time"
+            ]
         cfg.save()
         reboot_scheduler.update_schedule()
 

@@ -28,6 +28,9 @@
       <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
         {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
       </span>
+      <span class="status-indicator {% if state and state.display_power %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+        {% if state and state.display_power %}Monitor aktiv{% else %}Monitor aus{% endif %}
+      </span>
       <span class="muted">Status laut systemd: {{ service_status or 'unbekannt' }}</span>
     </div>
     <div class="button-row">
@@ -58,9 +61,25 @@
         <input type="checkbox" name="auto_reboot_enabled" value="1" {% if config.maintenance.auto_reboot_enabled %}checked{% endif %} />
         Täglichen Neustart aktivieren
       </label>
-      <label>Uhrzeit (HH:MM)
-        <input type="time" name="auto_reboot_time" value="{{ config.maintenance.auto_reboot_time }}" required pattern="^([01]?\d|2[0-3]):[0-5]\d$" />
-      </label>
+      <div class="time-list" id="reboot-time-list">
+        <div class="time-list__header">Geplante Uhrzeiten</div>
+        {% set times = namespace(values=config.maintenance.auto_reboot_times) %}
+        {% if not times.values %}
+        {% set fallback = config.maintenance.auto_reboot_time or '' %}
+        {% if fallback %}
+        {% set times.values = [fallback] %}
+        {% else %}
+        {% set times.values = [''] %}
+        {% endif %}
+        {% endif %}
+        {% for time in times.values %}
+        <div class="time-row">
+          <input type="time" name="auto_reboot_times" value="{{ time }}" pattern="^([01]?\d|2[0-3]):[0-5]\d$" />
+          <button type="button" class="button-link remove-time" data-action="remove-time">Entfernen</button>
+        </div>
+        {% endfor %}
+        <button type="button" class="button-link add-time" id="add-reboot-time">Weitere Uhrzeit hinzufügen</button>
+      </div>
       <button type="submit">Einstellungen speichern</button>
     </form>
     {% if next_reboot %}
@@ -128,6 +147,55 @@
     const downloadLink = document.getElementById('log-download');
     const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
     const downloadBase = "{{ url_for('download_log', name='__LOG__') }}";
+    const timeList = document.getElementById('reboot-time-list');
+    const addTimeButton = document.getElementById('add-reboot-time');
+
+    function updateTimeRemoveButtons() {
+      if (!timeList) {
+        return;
+      }
+      const rows = timeList.querySelectorAll('.time-row');
+      const disable = rows.length <= 1;
+      rows.forEach((row) => {
+        const removeButton = row.querySelector('[data-action="remove-time"]');
+        if (removeButton) {
+          removeButton.disabled = disable;
+          removeButton.classList.toggle('is-disabled', disable);
+        }
+      });
+    }
+
+    function addTimeRow(value = '') {
+      if (!timeList || !addTimeButton) {
+        return;
+      }
+      const row = document.createElement('div');
+      row.className = 'time-row';
+      row.innerHTML = `
+        <input type="time" name="auto_reboot_times" value="${value}" pattern="^([01]?\\d|2[0-3]):[0-5]\\d$" />
+        <button type="button" class="button-link remove-time" data-action="remove-time">Entfernen</button>
+      `;
+      timeList.insertBefore(row, addTimeButton);
+      updateTimeRemoveButtons();
+    }
+
+    if (timeList && addTimeButton) {
+      addTimeButton.addEventListener('click', () => {
+        addTimeRow('');
+      });
+      timeList.addEventListener('click', (event) => {
+        const target = event.target;
+        if (target && target.matches('[data-action="remove-time"]')) {
+          event.preventDefault();
+          const row = target.closest('.time-row');
+          if (row) {
+            row.remove();
+            updateTimeRemoveButtons();
+          }
+        }
+      });
+      updateTimeRemoveButtons();
+    }
 
     async function loadLog() {
       if (!select || !output) {
