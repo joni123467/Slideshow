@@ -38,6 +38,23 @@ enable_user_linger() {
   fi
 }
 
+run_config_migration() {
+  local user="$1"
+  if [[ -z "$user" || ! -f "$APP_DIR/manage.py" ]]; then
+    return
+  fi
+  local cmd=("$VENV_DIR/bin/python" "$APP_DIR/manage.py" migrate-config)
+  echo "Aktualisiere Slideshow-Konfiguration für geplante Neustarts …"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$user" -H -- "${cmd[@]}" || true
+  else
+    local quoted_cmd
+    quoted_cmd=$(printf ' %q' "${cmd[@]}")
+    quoted_cmd=${quoted_cmd:1}
+    su - "$user" -c "$quoted_cmd" || true
+  fi
+}
+
 determine_run_user() {
   local user=""
   if [[ -f "$RUN_USER_FILE" ]]; then
@@ -184,6 +201,7 @@ if [[ -n "$RUN_USER" ]]; then
   fi
   configure_lightdm_autologin "$RUN_USER"
   enable_user_linger "$RUN_USER"
+  run_config_migration "$RUN_USER"
   if ! render_systemd_unit "$RUN_USER"; then
     echo "Warnung: Systemd-Unit konnte nicht aktualisiert werden." >&2
   fi

@@ -1,6 +1,7 @@
 """Helfer zur Planung regelmäßiger Wartungsaufgaben."""
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import logging
 import threading
@@ -31,7 +32,7 @@ class DailyRebootScheduler:
     """Überwacht die Konfiguration und führt tägliche Neustarts aus."""
 
     def __init__(self, config: MaintenanceConfig, system_manager) -> None:
-        self._config = config
+        self._config = dataclasses.replace(config)
         self._system_manager = system_manager
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -53,13 +54,21 @@ class DailyRebootScheduler:
 
     def set_config(self, config: MaintenanceConfig) -> None:
         with self._lock:
-            self._config = config
+            self._config = dataclasses.replace(config)
             self._next_run = None
         self.update_schedule()
 
     def next_run(self) -> Optional[datetime.datetime]:
         with self._lock:
             return self._next_run
+
+    def configured_times(self) -> List[str]:
+        """Gibt die geplanten Uhrzeiten als Liste von HH:MM-Zeichenketten zurück."""
+
+        with self._lock:
+            config = dataclasses.replace(self._config)
+
+        return [time.strftime("%H:%M") for time in self._configured_times_from(config)]
 
     def _run(self) -> None:  # pragma: no cover - Hintergrundthread
         while not self._stop.is_set():
@@ -96,9 +105,12 @@ class DailyRebootScheduler:
         return triggered
 
     def _compute_next_run(self) -> Optional[datetime.datetime]:
-        if not self._config.auto_reboot_enabled:
+        with self._lock:
+            config = dataclasses.replace(self._config)
+
+        if not config.auto_reboot_enabled:
             return None
-        reboot_times = self._configured_times()
+        reboot_times = self._configured_times_from(config)
         if not reboot_times:
             return None
 
@@ -124,12 +136,12 @@ class DailyRebootScheduler:
             microsecond=0,
         )
 
-    def _configured_times(self) -> List[datetime.time]:
+    def _configured_times_from(self, config: MaintenanceConfig) -> List[datetime.time]:
         """Liefert alle gültigen Uhrzeiten für geplante Neustarts."""
 
-        raw_times = list(getattr(self._config, "auto_reboot_times", []) or [])
+        raw_times = list(getattr(config, "auto_reboot_times", []) or [])
         if not raw_times:
-            fallback = getattr(self._config, "auto_reboot_time", "") or ""
+            fallback = getattr(config, "auto_reboot_time", "") or ""
             if fallback:
                 raw_times.append(fallback)
 
@@ -141,6 +153,9 @@ class DailyRebootScheduler:
 
         parsed_times.sort()
         return parsed_times
+
+    def _configured_times(self) -> List[datetime.time]:
+        return self._configured_times_from(self._config)
 
 
 __all__ = ["DailyRebootScheduler", "is_valid_daily_time"]
