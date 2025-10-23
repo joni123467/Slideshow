@@ -24,7 +24,7 @@ from flask import (
     url_for,
 )
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
-from werkzeug.urls import url_parse
+from urllib.parse import urlparse
 
 from . import __version__
 from .auth import PamAuthenticator, User
@@ -162,7 +162,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/login", methods=["GET", "POST"])
     def login():
         next_url = request.args.get("next") or request.form.get("next") or ""
-        if next_url and url_parse(next_url).netloc:
+        if next_url and urlparse(next_url).netloc:
             next_url = ""
 
         username_value = (request.args.get("username") or "").strip()
