@@ -21,14 +21,18 @@ class DisplayPowerMonitor:
         *,
         display: Optional[str] = None,
         poll_interval: float = 5.0,
+        confirmations_required: int = 2,
     ) -> None:
         self.display = display or os.environ.get("DISPLAY", ":0")
         self.poll_interval = max(1.0, float(poll_interval))
+        self.confirmations_required = max(1, int(confirmations_required))
         self._callbacks: list[Callable[[bool], None]] = []
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._state: bool = True
         self._lock = threading.Lock()
+        self._candidate_state: Optional[bool] = None
+        self._candidate_count: int = 0
 
     def start(self, callback: Optional[Callable[[bool], None]] = None) -> bool:
         """Startet den Hintergrund-Thread und liefert den aktuellen Zustand."""
@@ -51,6 +55,8 @@ class DisplayPowerMonitor:
             if initial_state is None:
                 initial_state = True
             self._state = initial_state
+            self._candidate_state = None
+            self._candidate_count = 0
             self._thread = threading.Thread(
                 target=self._run,
                 name="DisplayPowerMonitor",
@@ -68,6 +74,8 @@ class DisplayPowerMonitor:
         with self._lock:
             thread = self._thread
             self._thread = None
+            self._candidate_state = None
+            self._candidate_count = 0
         if thread:
             thread.join(timeout=self.poll_interval * 2)
 
@@ -79,9 +87,34 @@ class DisplayPowerMonitor:
             state = self._probe_state()
             if state is None:
                 continue
-            if state != self._state:
-                LOGGER.info("Erkannter Anzeigestatus geändert: %s", "ein" if state else "aus")
+            if state == self._state:
+                self._candidate_state = None
+                self._candidate_count = 0
+                continue
+
+            if self.confirmations_required <= 1:
+                LOGGER.info(
+                    "Erkannter Anzeigestatus geändert: %s",
+                    "ein" if state else "aus",
+                )
                 self._state = state
+                self._notify(state)
+                continue
+
+            if self._candidate_state == state:
+                self._candidate_count += 1
+            else:
+                self._candidate_state = state
+                self._candidate_count = 1
+
+            if self._candidate_count >= self.confirmations_required:
+                LOGGER.info(
+                    "Erkannter Anzeigestatus geändert: %s",
+                    "ein" if state else "aus",
+                )
+                self._state = state
+                self._candidate_state = None
+                self._candidate_count = 0
                 self._notify(state)
 
     def _notify(self, state: bool, *, force: bool = False) -> None:
