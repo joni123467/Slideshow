@@ -61,6 +61,7 @@
         <input type="checkbox" name="auto_reboot_enabled" value="1" {% if config.maintenance.auto_reboot_enabled %}checked{% endif %} />
         Täglichen Neustart aktivieren
       </label>
+      <p class="form-help">Lege beliebig viele Uhrzeiten im Format <code>HH:MM</code> fest. Zu jeder Uhrzeit startet der Raspberry Pi automatisch neu.</p>
       <div class="time-list" id="reboot-time-list">
         <div class="time-list__header">Geplante Uhrzeiten</div>
         {% set times = namespace(values=config.maintenance.auto_reboot_times) %}
@@ -82,6 +83,9 @@
       </div>
       <button type="submit">Einstellungen speichern</button>
     </form>
+    {% if config.maintenance.auto_reboot_enabled and scheduled_times %}
+    <p class="muted">Aktive Uhrzeiten: <strong>{{ scheduled_times | join(', ') }}</strong></p>
+    {% endif %}
     {% if next_reboot %}
     <p class="muted">Nächster geplanter Neustart: <strong>{{ next_reboot.strftime('%d.%m.%Y %H:%M') }}</strong></p>
     {% elif config.maintenance.auto_reboot_enabled %}

@@ -27,6 +27,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         player.stop()
 
 
+def cmd_migrate_config(args: argparse.Namespace) -> None:
+    """Aktualisiert die Konfiguration auf die aktuelle Struktur."""
+
+    config = AppConfig.load()
+    config.save()
+    print("Konfiguration wurde aktualisiert.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Slideshow Steuerung")
     sub = parser.add_subparsers(dest="command")
@@ -36,6 +44,12 @@ def main() -> None:
     parser_run.add_argument("--port", type=int, default=None, help="Port des Webservers")
     parser_run.add_argument("--debug", action="store_true", help="Aktiviert Flask-Debug-Modus")
     parser_run.set_defaults(func=cmd_run)
+
+    parser_migrate = sub.add_parser(
+        "migrate-config",
+        help="Übernimmt neue Konfigurationsfelder (z. B. geplante Neustarts)",
+    )
+    parser_migrate.set_defaults(func=cmd_migrate_config)
 
     args = parser.parse_args()
     if not args.command:
