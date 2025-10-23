@@ -454,6 +454,33 @@ form {
   max-width: 280px;
 }
 
+.time-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.time-list__header {
+  font-weight: 600;
+}
+
+.time-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.time-row input[type='time'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.time-list .add-time {
+  align-self: flex-start;
+  margin-top: 0;
+}
+
 .split-grid {
   display: grid;
   gap: 1rem;

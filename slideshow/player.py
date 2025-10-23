@@ -14,9 +14,10 @@ from typing import Dict, List, Optional, Tuple
 from PIL import Image
 
 from .config import AppConfig, PlaylistItem
+from .display import DisplayPowerMonitor
 from .info import InfoScreen
 from .media import MediaManager
-from .state import get_state, set_manual_flag, set_state
+from .state import get_state, set_display_power, set_manual_flag, set_state
 from .system import resolve_hostname, resolve_ip_addresses
 from .mpv_controller import MpvController
 
@@ -45,18 +46,28 @@ class PlayerService:
         self._controllers: Dict[str, MpvController] = {}
         self._controller_lock = threading.Lock()
         self._mpv_args = self._collect_mpv_args()
+        self._display_monitor = DisplayPowerMonitor()
+        self._display_state_event = threading.Event()
+        self._display_active = True
+        self._last_display_state: Optional[bool] = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
         self._reload.clear()
+        self._display_state_event.clear()
+        self._last_display_state = None
+        current_display_state = self._display_monitor.start(self._on_display_state_changed)
+        self._display_active = bool(current_display_state)
         self._thread = threading.Thread(target=self._run, name="PlayerService", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
         self._reload.set()
+        self._display_state_event.set()
+        self._display_monitor.stop()
         self._stop_splitscreen_threads()
         if self._thread:
             self._thread.join(timeout=5)
@@ -101,11 +112,64 @@ class PlayerService:
         set_manual_flag(enabled)
         self.reload()
 
+    def _on_display_state_changed(self, active: bool) -> None:
+        self._display_active = bool(active)
+        self._display_state_event.set()
+
     def _run(self) -> None:
         LOGGER.info("Player thread started")
+        set_display_power(self._display_active)
         refresh_interval = max(5, int(self.config.playback.refresh_interval))
         while not self._stop.is_set():
             manual_info = self._info_manual.is_set()
+
+            if self._display_state_event.is_set():
+                self._display_state_event.clear()
+                if self._display_active:
+                    if self._last_display_state is not True:
+                        LOGGER.info("Anzeige wieder aktiv – Wiedergabe wird fortgesetzt")
+                    set_display_power(True)
+                    if self._last_display_state is False:
+                        self._reload.set()
+                    self._last_display_state = True
+                else:
+                    if self._last_display_state is not False:
+                        LOGGER.warning("Anzeige deaktiviert – stoppe laufende Wiedergabe")
+                        self._stop_splitscreen_threads()
+                        self._stop_all_controllers()
+                        self._reload.clear()
+                        info_manual = self._info_manual.is_set()
+                        set_state(
+                            None,
+                            "display-off",
+                            info_screen=False,
+                            info_manual=info_manual,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                        set_state(
+                            None,
+                            "display-off",
+                            side="secondary",
+                            info_screen=False,
+                            info_manual=info_manual,
+                            source=None,
+                            media_path=None,
+                            media_type=None,
+                            preview_path=None,
+                        )
+                    set_display_power(False)
+                    self._last_display_state = False
+                    if self._stop.wait(timeout=1):
+                        break
+                    continue
+
+            if not self._display_active:
+                if self._stop.wait(timeout=1):
+                    break
+                continue
 
             if self.config.playback.splitscreen_enabled:
                 if manual_info:
