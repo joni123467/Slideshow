@@ -944,6 +944,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             ),
             "info_screen": state.info_screen,
             "info_manual": state.info_manual,
+            "display_power": state.display_power,
             "service_status": svc_status,
             "service_active": service_active(svc_status),
             "version": app.config.get("SLIDESHOW_VERSION"),

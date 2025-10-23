@@ -49,6 +49,7 @@ configure_lightdm_autologin() {
 autologin-user=$user
 autologin-user-timeout=0
 autologin-session=lightdm-autologin
+xserver-command=X -s 0 -dpms
 CONF
     echo "LightDM-Autologin für $user konfiguriert."
   else
@@ -176,7 +177,7 @@ cat <<REPO > "$APP_DIR/.install_repo"
 $REPO_SLUG
 REPO
 
-chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" "$APP_DIR/scripts/desktop_keepalive.sh" 2>/dev/null || true
 
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
@@ -242,6 +243,7 @@ SERVICE_ENV=(
     echo "$env"
   done
   echo "ExecStartPre=/bin/sh -c 'DISPLAY=:0 XAUTHORITY=$XAUTHORITY_PATH xset q >/dev/null 2>&1 || true'"
+  echo "ExecStartPre=$APP_DIR/scripts/desktop_keepalive.sh"
   echo "ExecStart=$VENV_DIR/bin/python manage.py run --host 0.0.0.0 --port 8080"
   echo "ExecStartPost=/bin/sh -c 'echo \"Slideshow mit DISPLAY=\$DISPLAY gestartet\" | systemd-cat -t slideshow'"
   echo "Restart=always"
