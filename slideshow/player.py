@@ -43,6 +43,7 @@ class PlayerService:
             "secondary": None,
         }
         self._temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="slideshow-display-"))
+        self._idle_placeholders: Dict[Tuple[str, bool], pathlib.Path] = {}
         self._controllers: Dict[str, MpvController] = {}
         self._controller_lock = threading.Lock()
         self._mpv_args = self._collect_mpv_args()
@@ -230,6 +231,7 @@ class PlayerService:
                         media_type=None,
                         preview_path=None,
                     )
+                    self._display_idle_frame("primary", geometry=None)
                     time.sleep(refresh_interval)
                 return True
 
@@ -259,6 +261,7 @@ class PlayerService:
                         media_type=None,
                         preview_path=None,
                     )
+                    self._display_idle_frame("primary", geometry=None)
                     time.sleep(refresh_interval)
                 self._reload.clear()
                 return True
@@ -314,7 +317,7 @@ class PlayerService:
         return True
 
     def _show_idle_placeholder(self, duration: int) -> None:
-        placeholder = self._idle_placeholder_path()
+        placeholder = self._idle_placeholder_path("primary", force_fullscreen=True)
         self._show_image(
             placeholder,
             duration,
@@ -349,6 +352,7 @@ class PlayerService:
         def run(self) -> None:  # pragma: no cover - Hintergrundthread
             if not self.items:
                 state_side = self.service._state_side(self.side)
+                self.service._display_idle_frame(state_side, geometry=self.geometry)
                 set_state(
                     None,
                     "idle",
@@ -396,6 +400,7 @@ class PlayerService:
                 media_type=None,
                 preview_path=None,
             )
+            self.service._display_idle_frame(state_side, geometry=self.geometry)
 
     def _ensure_splitscreen_running(self) -> bool:
         left_items, right_items = self.manager.build_splitscreen_playlists(
@@ -420,11 +425,15 @@ class PlayerService:
             if left_items:
                 self._controller_for_side("primary", self._geometry_for_side("left"))
             else:
-                self._stop_controller("primary")
+                self._display_idle_frame(
+                    "primary", geometry=self._geometry_for_side("left")
+                )
             if right_items:
                 self._controller_for_side("secondary", self._geometry_for_side("right"))
             else:
-                self._stop_controller("secondary")
+                self._display_idle_frame(
+                    "secondary", geometry=self._geometry_for_side("right")
+                )
             if left_items:
                 worker = self._SplitWorker(
                     self,
@@ -794,7 +803,7 @@ class PlayerService:
                 LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
             else:
                 controller.set_property("image-display-duration", display_duration)
-                hold_for_info = media_kind == "info"
+                hold_for_info = media_kind in {"info", "idle"}
                 manual_interrupts_allowed = not hold_for_info
                 if controller.load_file(processed_path):
                     if transition_file:
@@ -948,13 +957,39 @@ class PlayerService:
         return (duration, None) if result.returncode == 0 else (0.0, None)
 
     # Hilfsfunktionen ----------------------------------------------------
-    def _idle_placeholder_path(self) -> pathlib.Path:
-        placeholder = self._temp_dir / "idle-placeholder.jpg"
-        if not placeholder.exists():
-            self._temp_dir.mkdir(parents=True, exist_ok=True)
-            width, height = self._target_size("primary", force_fullscreen=True)
-            image = Image.new("RGB", (width, height), color="black")
-            image.save(placeholder, format="JPEG", quality=85)
+    def _display_idle_frame(self, side: str, geometry: Optional[str]) -> None:
+        controller = self._controller_for_side(side, geometry)
+        if not controller:
+            return
+        force_fullscreen = geometry is None
+        placeholder = self._idle_placeholder_path(side, force_fullscreen=force_fullscreen)
+        if controller.load_file(placeholder):
+            try:
+                controller.set_property("pause", True)
+            except Exception:
+                LOGGER.debug("Konnte mpv nicht pausieren, um Platzhalter zu halten")
+            self._previous_images[side] = placeholder
+
+    def _idle_placeholder_path(self, side: str, *, force_fullscreen: bool) -> pathlib.Path:
+        width, height = self._target_size(side, force_fullscreen=force_fullscreen)
+        key = (side, force_fullscreen, width, height)
+        placeholder = self._idle_placeholders.get(key)
+        if placeholder and placeholder.exists():
+            return placeholder
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        variant = "full" if force_fullscreen else "split"
+        placeholder = self._temp_dir / (
+            f"idle-placeholder-{side}-{variant}-{width}x{height}.jpg"
+        )
+        # Ältere Platzhalter für dieselbe Variante entfernen
+        stale_keys = [k for k in self._idle_placeholders if k[:2] == (side, force_fullscreen)]
+        for stale in stale_keys:
+            old_path = self._idle_placeholders.pop(stale)
+            if old_path.exists() and old_path != placeholder:
+                self._safe_remove(old_path)
+        image = Image.new("RGB", (width, height), color="black")
+        image.save(placeholder, format="JPEG", quality=85)
+        self._idle_placeholders[key] = placeholder
         return placeholder
 
     def _prepare_image(
@@ -1043,6 +1078,7 @@ class PlayerService:
                 shutil.rmtree(self._temp_dir)
             except Exception:
                 LOGGER.debug("Konnte temporäres Verzeichnis nicht entfernen")
+        self._idle_placeholders.clear()
 
     def _mpv_geometry_args(self, geometry: Optional[str]) -> List[str]:
         args: List[str] = ["--force-window=yes"]
