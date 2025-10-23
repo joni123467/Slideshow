@@ -66,6 +66,23 @@ enable_user_linger() {
   fi
 }
 
+run_config_migration() {
+  local user="$1"
+  if [[ ! -f "$APP_DIR/manage.py" ]]; then
+    return
+  fi
+  local cmd=("$VENV_DIR/bin/python" "$APP_DIR/manage.py" migrate-config)
+  echo "Aktualisiere Slideshow-Konfiguration für geplante Neustarts …"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$user" -H -- "${cmd[@]}" || true
+  else
+    local quoted_cmd
+    quoted_cmd=$(printf ' %q' "${cmd[@]}")
+    quoted_cmd=${quoted_cmd:1}
+    su - "$user" -c "$quoted_cmd" || true
+  fi
+}
+
 if [[ $EUID -ne 0 ]]; then
   echo "Dieses Skript muss als root ausgeführt werden." >&2
   exit 1
@@ -203,6 +220,8 @@ if [[ -f "$APP_DIR/pyproject.toml" ]]; then
 elif [[ -f "$APP_DIR/requirements.txt" ]]; then
   "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 fi
+
+run_config_migration "$USER_NAME"
 
 RUNTIME_NAME="slideshow-$USER_UID"
 RUNTIME_DIR="/run/$RUNTIME_NAME"
