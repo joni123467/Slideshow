@@ -84,6 +84,88 @@ Wichtige Felder:
 
 Antwort: `{ "status": "ok", "playback": { ... } }`
 
+## Netzwerkeinstellungen
+
+### `GET /api/network`
+
+Liefert sowohl die gespeicherte Netzwerkkonfiguration als auch die aktuell ermittelten Systemwerte.
+
+```json
+{
+  "status": "ok",
+  "config": {
+    "hostname": "slideshow",
+    "interface": "eth0",
+    "ipv4": {
+      "mode": "dhcp",
+      "static": {
+        "address": null,
+        "router": null,
+        "dns": []
+      }
+    },
+    "ipv6": {
+      "mode": "dhcp",
+      "static": {
+        "address": null,
+        "router": null,
+        "dns": []
+      }
+    }
+  },
+  "current": {
+    "hostname": "slideshow",
+    "interface": "eth0",
+    "ipv4": {
+      "mode": "dhcp",
+      "address": "192.168.1.20/24",
+      "router": "192.168.1.1",
+      "dns": ["192.168.1.1"]
+    },
+    "ipv6": {
+      "mode": "dhcp",
+      "address": "fd00::1234/64",
+      "router": "fd00::1",
+      "dns": []
+    },
+    "dns": ["192.168.1.1"]
+  }
+}
+```
+
+### `PUT /api/network`
+
+Aktualisiert Hostname, Interface sowie IPv4- und IPv6-Einstellungen. Teilupdates sind erlaubt; nicht gesetzte Felder bleiben unverändert. Das JSON kann entweder flache Felder oder verschachtelte Objekte enthalten.
+
+Unterstützte Felder:
+
+- `hostname` – neuer Hostname (String)
+- `interface` – Name des Netzwerkinterfaces
+- `ipv4_mode`, `ipv6_mode` – `dhcp`, `static` bzw. bei IPv6 zusätzlich `disabled`
+- `ipv4_address`, `ipv4_router`, `ipv6_address`, `ipv6_router` – Strings oder `null`
+- `ipv4_dns`, `ipv6_dns` – Liste oder (komma-/strichpunktgetrennter) String
+- `ipv4`, `ipv6` – optional verschachtelte Objekte mit den gleichen Feldern (`mode`, `static.address`, `static.router`, `static.dns`)
+
+Beispiel:
+
+```json
+{
+  "hostname": "display-01",
+  "interface": "eth0",
+  "ipv4": {
+    "mode": "static",
+    "static": {
+      "address": "192.168.1.50/24",
+      "router": "192.168.1.1",
+      "dns": ["192.168.1.1", "8.8.8.8"]
+    }
+  },
+  "ipv6_mode": "disabled"
+}
+```
+
+Antwort: `{ "status": "ok", "config": { ... }, "current": { ... } }`
+
 ## Quellenverwaltung
 
 ### `GET /api/sources`
