@@ -100,6 +100,12 @@ DEFAULT_CONFIG = {
     "ui": {
         "theme": "mid",
     },
+    "logging": {
+        "level": "INFO",
+    },
+    "maintenance": {
+        "auto_restart_times": [],
+    },
 }
 
 _lock = threading.Lock()
@@ -143,6 +149,51 @@ def _normalize_disabled_media(raw) -> Dict[str, List[Dict[str, str]]]:
                 normalized["fullscreen"].append(normalized_entry)
 
     return normalized
+
+
+def normalize_restart_times(raw) -> Tuple[List[str], List[str]]:
+    """Bereitet geplante Neustartzeiten auf."""
+
+    if raw is None:
+        return [], []
+
+    if isinstance(raw, str):
+        items = [raw]
+    elif isinstance(raw, Iterable):
+        items = list(raw)
+    else:
+        items = [raw]
+
+    normalized: List[str] = []
+    invalid: List[str] = []
+
+    for item in items:
+        if item is None:
+            continue
+        text = str(item).strip()
+        if not text:
+            continue
+        if ":" in text:
+            parts = text.split(":", 1)
+        else:
+            parts = [text, "0"]
+        if len(parts) != 2:
+            invalid.append(text)
+            continue
+        hour_part, minute_part = parts
+        try:
+            hour = int(hour_part)
+            minute = int(minute_part)
+        except ValueError:
+            invalid.append(text)
+            continue
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            invalid.append(text)
+            continue
+        normalized.append(f"{hour:02d}:{minute:02d}")
+
+    ordered = sorted(dict.fromkeys(normalized))
+    return ordered, invalid
 
 
 @dataclasses.dataclass
@@ -207,6 +258,16 @@ class UIConfig:
 
 
 @dataclasses.dataclass
+class LoggingConfig:
+    level: str
+
+
+@dataclasses.dataclass
+class MaintenanceConfig:
+    auto_restart_times: List[str]
+
+
+@dataclasses.dataclass
 class AppConfig:
     media_sources: List[MediaSource]
     playlist: List[PlaylistItem]
@@ -214,6 +275,8 @@ class AppConfig:
     network: NetworkConfig
     server: ServerConfig
     ui: UIConfig
+    logging: LoggingConfig
+    maintenance: MaintenanceConfig
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -232,6 +295,21 @@ class AppConfig:
         )
         ui_raw = dict(config.get("ui") or {})
         ui_raw.setdefault("theme", DEFAULT_CONFIG["ui"]["theme"])
+        logging_raw = dict(config.get("logging") or {})
+        level_value = str(
+            logging_raw.get("level") or DEFAULT_CONFIG["logging"]["level"]
+        ).strip()
+        logging_raw["level"] = level_value.upper() or DEFAULT_CONFIG["logging"]["level"]
+        maintenance_raw = dict(config.get("maintenance") or {})
+        restart_times, invalid_times = normalize_restart_times(
+            maintenance_raw.get("auto_restart_times")
+        )
+        if invalid_times:
+            LOGGER.warning(
+                "Ignoriere ungültige Neustartzeiten in config.yml: %s",
+                ", ".join(invalid_times),
+            )
+        maintenance_raw["auto_restart_times"] = restart_times
 
         instance = cls(
             media_sources=[
@@ -250,6 +328,8 @@ class AppConfig:
             network=NetworkConfig(**config["network"]),
             server=ServerConfig(**config["server"]),
             ui=UIConfig(**ui_raw),
+            logging=LoggingConfig(**logging_raw),
+            maintenance=MaintenanceConfig(**maintenance_raw),
         )
         instance.ensure_local_paths()
         return instance
@@ -262,6 +342,8 @@ class AppConfig:
             "network": dataclasses.asdict(self.network),
             "server": dataclasses.asdict(self.server),
             "ui": dataclasses.asdict(self.ui),
+            "logging": dataclasses.asdict(self.logging),
+            "maintenance": dataclasses.asdict(self.maintenance),
         }
         with _lock:
             CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")

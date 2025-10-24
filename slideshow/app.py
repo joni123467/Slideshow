@@ -27,8 +27,14 @@ from flask_login import LoginManager, current_user, login_required, login_user, 
 
 from . import __version__
 from .auth import PamAuthenticator, User
-from .config import AppConfig, PlaylistItem, export_config_bundle, import_config_bundle
-from .logging_config import available_logs
+from .config import (
+    AppConfig,
+    PlaylistItem,
+    export_config_bundle,
+    import_config_bundle,
+    normalize_restart_times,
+)
+from .logging_config import available_logs, apply_log_level, LOG_LEVEL_CHOICES
 from .media import (
     MediaManager,
     PLAYLIST_CONTEXT_FULLSCREEN,
@@ -37,6 +43,7 @@ from .media import (
 )
 from .network import NetworkManager
 from .player import PlayerService
+from .scheduler import RestartScheduler
 from .state import get_state
 from .system import SystemManager
 
@@ -84,16 +91,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     app.config.setdefault("PORT", 8080)
 
     cfg = config or AppConfig.load()
+    apply_log_level(cfg.logging.level)
     media_manager = MediaManager(cfg)
     network_manager = NetworkManager(cfg)
     player = player_service or PlayerService(cfg)
     system_manager = SystemManager()
+    restart_scheduler = RestartScheduler(player, cfg.maintenance.auto_restart_times)
 
     if cfg.playback.auto_start:
         player.start()
 
     app.extensions["player_service"] = player
     app.extensions["system_manager"] = system_manager
+    app.extensions["restart_scheduler"] = restart_scheduler
     app.config["SLIDESHOW_VERSION"] = __version__
     app.config["SLIDESHOW_THEME"] = cfg.ui.theme
 
@@ -112,13 +122,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "log_sources": available_logs(),
             "current_theme": cfg.ui.theme,
             "theme_choices": THEME_CHOICES,
+            "log_level_choices": LOG_LEVEL_CHOICES,
         }
-
-    def service_active(status: Optional[str]) -> bool:
-        if not status:
-            return False
-        normalized = status.strip().lower()
-        return normalized in {"active", "active (running)", "running"}
 
     @app.template_filter("datetimeformat")
     def datetimeformat(value, fmt="%d.%m.%Y %H:%M:%S"):
@@ -182,7 +187,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 cfg.playback.splitscreen_right_path,
                 include_disabled=True,
             )
-        service_status = system_manager.service_status()
+        service_running = player.is_running()
+        service_status = "läuft" if service_running else "gestoppt"
         disabled_keys = media_manager.disabled_media_keys_by_context()
         return render_template(
             "dashboard.html",
@@ -192,7 +198,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             splitscreen_right=split_right,
             config=cfg,
             service_status=service_status,
-            service_active=service_active(service_status),
+            service_active=service_running,
             disabled_keys=disabled_keys,
             context_fullscreen=PLAYLIST_CONTEXT_FULLSCREEN,
             context_split_left=PLAYLIST_CONTEXT_SPLIT_LEFT,
@@ -515,7 +521,15 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         for branch in branches:
             if branch not in branch_choices:
                 branch_choices.append(branch)
-        service_status = system_manager.service_status()
+        restart_scheduler = app.extensions.get("restart_scheduler")
+        scheduled_restart_list: List[str] = []
+        if restart_scheduler:
+            scheduled_restart_list = restart_scheduler.scheduled_times()
+        if not scheduled_restart_list:
+            scheduled_restart_list = list(cfg.maintenance.auto_restart_times)
+        scheduled_restart_text = ", ".join(cfg.maintenance.auto_restart_times)
+        service_running = player.is_running()
+        service_status = "läuft" if service_running else "gestoppt"
         return render_template(
             "system.html",
             config=cfg,
@@ -524,7 +538,10 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             has_branch_info=bool(branch_choices),
             fallback_repo=system_manager.fallback_repo,
             service_status=service_status,
-            service_active=service_active(service_status),
+            service_active=service_running,
+            current_log_level=cfg.logging.level,
+            scheduled_restart_list=scheduled_restart_list,
+            scheduled_restart_text=scheduled_restart_text,
         )
 
     @app.route("/system/theme", methods=["POST"])
@@ -542,6 +559,54 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             flash("Theme aktualisiert", "success")
         else:
             flash("Theme ist bereits aktiv", "info")
+        return redirect(url_for("system_settings"))
+
+    @app.route("/system/log-level", methods=["POST"])
+    @pam_required
+    def update_log_level():
+        level = (request.form.get("log_level") or "").strip()
+        try:
+            normalized = apply_log_level(level)
+        except ValueError:
+            flash("Ungültiges Log-Level ausgewählt", "danger")
+            return redirect(url_for("system_settings"))
+        if cfg.logging.level != normalized:
+            cfg.logging.level = normalized
+            cfg.save()
+        flash(f"Log-Level auf {normalized} gesetzt", "success")
+        return redirect(url_for("system_settings"))
+
+    @app.route("/system/restart-schedule", methods=["POST"])
+    @pam_required
+    def update_restart_schedule():
+        raw_value = request.form.get("restart_times") or ""
+        values: List[str] = []
+        for line in raw_value.splitlines():
+            for part in line.replace(";", ",").split(","):
+                cleaned = part.strip()
+                if cleaned:
+                    values.append(cleaned)
+        normalized, invalid = normalize_restart_times(values)
+        if invalid:
+            flash(
+                "Ungültige Zeiten: " + ", ".join(invalid) + ". Bitte Format HH:MM verwenden.",
+                "danger",
+            )
+            return redirect(url_for("system_settings"))
+        cfg.maintenance.auto_restart_times = normalized
+        cfg.save()
+        restart_scheduler = app.extensions.get("restart_scheduler")
+        success = True
+        if restart_scheduler:
+            success = restart_scheduler.update_schedule(normalized)
+        if normalized:
+            message = "Geplante Neustarts gespeichert: " + ", ".join(normalized)
+            category = "success" if success else "warning"
+            if not success:
+                message += " – Cron konnte nicht aktualisiert werden"
+            flash(message, category)
+        else:
+            flash("Geplante Neustarts deaktiviert", "info")
         return redirect(url_for("system_settings"))
 
     @app.route("/config/export")
@@ -579,12 +644,18 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         player.stop()
 
         cfg = new_cfg
+        apply_log_level(cfg.logging.level)
         media_manager = MediaManager(cfg)
         network_manager = NetworkManager(cfg)
         new_player = PlayerService(cfg)
         app.extensions["player_service"] = new_player
         player = new_player
         app.config["SLIDESHOW_THEME"] = cfg.ui.theme
+
+        restart_scheduler = app.extensions.get("restart_scheduler")
+        if restart_scheduler:
+            restart_scheduler.set_player(player)
+            restart_scheduler.update_schedule(cfg.maintenance.auto_restart_times)
 
         if was_running or cfg.playback.auto_start:
             player.start()
@@ -605,6 +676,19 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except ValueError:
             abort(404)
         return Response(content, mimetype="text/plain; charset=utf-8")
+
+    @app.route("/logs/<string:name>/delete", methods=["POST"])
+    @pam_required
+    def delete_log(name: str):
+        try:
+            system_manager.delete_log(name)
+            flash("Logdatei gelöscht", "success")
+        except ValueError:
+            flash("Unbekannte Logdatei", "danger")
+        except OSError as exc:
+            LOGGER.exception("Löschen der Logdatei fehlgeschlagen")
+            flash(f"Logdatei konnte nicht gelöscht werden: {exc}", "danger")
+        return redirect(url_for("system_settings"))
 
     @app.route("/logs/<string:name>/download")
     @pam_required
@@ -853,10 +937,21 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/system/service/<string:action>", methods=["POST"])
     @pam_required
     def system_service(action: str):
+        normalized = (action or "").strip().lower()
+        if normalized not in {"start", "stop", "restart"}:
+            flash("Unbekannte Service-Aktion", "danger")
+            return redirect(url_for("system_settings"))
         try:
-            system_manager.control_service(action)
-            flash(f"Service {action} ausgeführt", "success")
-        except (subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+            if normalized == "restart":
+                player.restart()
+                flash("Slideshow neu gestartet", "success")
+            elif normalized == "start":
+                player.start()
+                flash("Slideshow gestartet", "success")
+            else:
+                player.stop()
+                flash("Slideshow gestoppt", "info")
+        except Exception as exc:  # pragma: no cover - defensive
             LOGGER.exception("Serviceaktion fehlgeschlagen")
             flash(f"Serviceaktion fehlgeschlagen: {exc}", "danger")
         return redirect(url_for("system_settings"))
@@ -888,7 +983,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @pam_required
     def api_state():
         state = get_state()
-        svc_status = system_manager.service_status()
+        service_running = player.is_running()
+        svc_status = "running" if service_running else "stopped"
         return jsonify({
             "primary_item": state.primary_item,
             "primary_status": state.primary_status,
@@ -917,7 +1013,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "info_screen": state.info_screen,
             "info_manual": state.info_manual,
             "service_status": svc_status,
-            "service_active": service_active(svc_status),
+            "service_active": service_running,
             "version": app.config.get("SLIDESHOW_VERSION"),
             "theme": app.config.get("SLIDESHOW_THEME", cfg.ui.theme),
         })
