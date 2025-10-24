@@ -176,34 +176,104 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
 }
 
-.system-overview .system-stats {
-  list-style: none;
-  margin: 0 0 1rem;
-  padding: 0;
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+.system-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.system-overview .system-stats li {
+.tab-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tab-control {
+  appearance: none;
+  border: 1px solid transparent;
   background: var(--surface-strong);
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
+  color: inherit;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
-.system-overview .system-stats .label {
+.tab-control:hover,
+.tab-control:focus {
+  background: var(--surface-alt);
+  outline: none;
+}
+
+.tab-control.is-active {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-contrast);
+}
+
+.tab-panels {
+  position: relative;
+}
+
+.tab-panel {
+  display: none;
+  margin: 0;
+}
+
+.tab-panel.is-active {
   display: block;
-  font-size: 0.8rem;
-  letter-spacing: 0.04em;
+}
+
+.system-summary-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.system-card {
+  background: var(--surface-strong);
+  border-radius: 0.85rem;
+  padding: 0.9rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 100px;
+}
+
+.system-card--wide {
+  width: 100%;
+}
+
+.system-card__title {
+  font-size: 0.78rem;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--muted);
 }
 
-.system-overview .system-stats .value {
-  display: block;
-  font-size: 1.1rem;
+.system-card__value {
+  font-size: 1.2rem;
   font-weight: 600;
-  margin-top: 0.35rem;
+}
+
+.system-card__value code {
+  font-size: 0.95rem;
+  background: var(--surface-alt);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.35rem;
+  display: inline-block;
+}
+
+.system-card__meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.system-load {
+  margin-bottom: 1rem;
 }
 
 .system-overview .system-usage {
@@ -211,6 +281,30 @@ a {
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-bottom: 1rem;
+}
+
+.usage-bar {
+  position: relative;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+
+.usage-bar__fill {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+.usage-bar__label {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 0.9rem;
 }
 
 .storage-warning {
