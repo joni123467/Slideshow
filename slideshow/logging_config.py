@@ -133,6 +133,10 @@ def available_logs() -> Dict[str, dict]:
         "label": "Systemdiagnose",
         "path": LOG_DIR / "diagnostics.log",
     }
+    result["smart-tests"] = {
+        "label": "SMART-Tests",
+        "path": LOG_DIR / "smart-tests.log",
+    }
     return result
 
 

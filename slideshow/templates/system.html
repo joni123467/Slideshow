@@ -290,6 +290,13 @@
                       <pre>{{ device.smart.details }}</pre>
                     </details>
                     {% endif %}
+                    {% if device.smart.available and device.smart.supported %}
+                    <form method="post" action="{{ url_for('system_smart_test') }}" class="inline-form smart-test-form">
+                      <input type="hidden" name="device" value="{{ device.path }}" />
+                      <input type="hidden" name="test" value="short" />
+                      <button type="submit" class="button-link">SMART-Kurztest starten</button>
+                    </form>
+                    {% endif %}
                   </td>
                 </tr>
                 {% endfor %}
@@ -316,6 +323,7 @@
             {% else %}
               Noch keine Ausführung
             {% endif %} – Ergebnisse im Log <code>diagnostics.log</code> einsehbar.
+            SMART-Test-Protokolle sind im Log <code>smart-tests.log</code> verfügbar.
           </p>
         </article>
         <article class="logs">

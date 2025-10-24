@@ -85,13 +85,23 @@ DEFAULT_CONFIG = {
     },
     "network": {
         "hostname": None,
-        "mode": "dhcp",
-        "static": {
-            "address": "192.168.0.100/24",
-            "router": "192.168.0.1",
-            "dns": ["1.1.1.1", "8.8.8.8"],
-        },
         "interface": "eth0",
+        "ipv4": {
+            "mode": "dhcp",
+            "static": {
+                "address": "192.168.0.100/24",
+                "router": "192.168.0.1",
+                "dns": ["1.1.1.1", "8.8.8.8"],
+            },
+        },
+        "ipv6": {
+            "mode": "dhcp",
+            "static": {
+                "address": "fd00::100/64",
+                "router": "fd00::1",
+                "dns": ["2001:4860:4860::8888"],
+            },
+        },
     },
     "server": {
         "bind": "0.0.0.0",
@@ -215,11 +225,24 @@ class PlaylistItem:
 
 
 @dataclasses.dataclass
+class StaticIPConfig:
+    address: Optional[str]
+    router: Optional[str]
+    dns: List[str]
+
+
+@dataclasses.dataclass
+class IPConfig:
+    mode: str
+    static: StaticIPConfig
+
+
+@dataclasses.dataclass
 class NetworkConfig:
     hostname: Optional[str]
-    mode: str  # dhcp oder static
     interface: str
-    static: Dict[str, Any]
+    ipv4: IPConfig
+    ipv6: IPConfig
 
 
 @dataclasses.dataclass
@@ -311,6 +334,60 @@ class AppConfig:
             )
         maintenance_raw["auto_restart_times"] = restart_times
 
+        network_raw = dict(config.get("network") or {})
+        network_defaults = DEFAULT_CONFIG["network"]
+
+        def _normalize_dns(value: Any) -> List[str]:
+            if isinstance(value, str):
+                parts = value.replace(";", ",").split(",")
+            elif isinstance(value, Iterable):
+                parts = list(value)
+            else:
+                return []
+            cleaned = []
+            for entry in parts:
+                text = str(entry).strip()
+                if text:
+                    cleaned.append(text)
+            return cleaned
+
+        def _build_ip_config(
+            raw: Dict[str, Any],
+            fallback_mode: Optional[str],
+            fallback_static: Dict[str, Any],
+        ) -> IPConfig:
+            mode_value = str(raw.get("mode") or fallback_mode or "dhcp").strip().lower() or "dhcp"
+            static_raw = dict(raw.get("static") or fallback_static or {})
+            address = (static_raw.get("address") or "").strip() or None
+            router = (static_raw.get("router") or "").strip() or None
+            dns_list = _normalize_dns(static_raw.get("dns"))
+            return IPConfig(
+                mode=mode_value,
+                static=StaticIPConfig(address=address, router=router, dns=dns_list),
+            )
+
+        legacy_mode = network_raw.get("mode")
+        legacy_static = network_raw.get("static") or {}
+        ipv4_raw = network_raw.get("ipv4") or {}
+        ipv6_raw = network_raw.get("ipv6") or {}
+        ipv4_config = _build_ip_config(
+            ipv4_raw if isinstance(ipv4_raw, dict) else {},
+            legacy_mode,
+            legacy_static or network_defaults["ipv4"]["static"],
+        )
+        ipv6_config = _build_ip_config(
+            ipv6_raw if isinstance(ipv6_raw, dict) else {},
+            network_raw.get("ipv6_mode"),
+            network_raw.get("ipv6_static") or network_defaults["ipv6"]["static"],
+        )
+
+        network_config = NetworkConfig(
+            hostname=network_raw.get("hostname"),
+            interface=(network_raw.get("interface") or network_defaults.get("interface") or "eth0"),
+            ipv4=ipv4_config,
+            ipv6=ipv6_config,
+        )
+
         instance = cls(
             media_sources=[
                 MediaSource(
@@ -325,7 +402,7 @@ class AppConfig:
             ],
             playlist=[PlaylistItem(**item) for item in config["playlist"]],
             playback=PlaybackConfig(**playback_raw),
-            network=NetworkConfig(**config["network"]),
+            network=network_config,
             server=ServerConfig(**config["server"]),
             ui=UIConfig(**ui_raw),
             logging=LoggingConfig(**logging_raw),

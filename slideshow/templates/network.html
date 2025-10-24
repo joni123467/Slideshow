@@ -12,25 +12,51 @@
       <label>Interface
         <input type="text" name="interface" value="{{ current.interface or config.network.interface }}" />
       </label>
-      <label>Modus
-        <select name="mode">
-          {% set mode = current.mode or config.network.mode %}
-          <option value="dhcp" {% if mode == 'dhcp' %}selected{% endif %}>DHCP</option>
-          <option value="static" {% if mode == 'static' %}selected{% endif %}>Statisch</option>
-        </select>
-      </label>
-      <label>Statische Adresse (CIDR)
-        {% set address = current.address or config.network.static.address %}
-        <input type="text" name="address" value="{{ address or '' }}" />
-      </label>
-      <label>Gateway
-        {% set router = current.router or config.network.static.router %}
-        <input type="text" name="router" value="{{ router or '' }}" />
-      </label>
-      <label>DNS-Server (kommagetrennt)
-        {% set dns_value = current.dns or config.network.static.dns %}
-        <input type="text" name="dns" value="{{ dns_value | join(',') if dns_value else '' }}" />
-      </label>
+      <fieldset>
+        <legend>IPv4</legend>
+        <label>Modus
+          {% set ipv4_mode = (config.network.ipv4.mode or 'dhcp') %}
+          <select name="ipv4_mode">
+            <option value="dhcp" {% if ipv4_mode == 'dhcp' %}selected{% endif %}>DHCP</option>
+            <option value="static" {% if ipv4_mode == 'static' %}selected{% endif %}>Statisch</option>
+          </select>
+        </label>
+        <label>Statische Adresse (CIDR)
+          <input type="text" name="ipv4_address" value="{{ config.network.ipv4.static.address or '' }}" />
+          {% if current.ipv4.address %}<span class="muted">Aktuell: {{ current.ipv4.address }}</span>{% endif %}
+        </label>
+        <label>Gateway
+          <input type="text" name="ipv4_router" value="{{ config.network.ipv4.static.router or '' }}" />
+          {% if current.ipv4.router %}<span class="muted">Aktuell: {{ current.ipv4.router }}</span>{% endif %}
+        </label>
+        <label>DNS-Server (kommagetrennt)
+          <input type="text" name="ipv4_dns" value="{{ config.network.ipv4.static.dns | join(',') if config.network.ipv4.static.dns else '' }}" />
+          {% if current.ipv4.dns %}<span class="muted">System: {{ current.ipv4.dns | join(', ') }}</span>{% endif %}
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>IPv6</legend>
+        <label>Modus
+          {% set ipv6_mode = (config.network.ipv6.mode or 'dhcp') %}
+          <select name="ipv6_mode">
+            <option value="dhcp" {% if ipv6_mode == 'dhcp' %}selected{% endif %}>Automatisch</option>
+            <option value="static" {% if ipv6_mode == 'static' %}selected{% endif %}>Statisch</option>
+            <option value="disabled" {% if ipv6_mode == 'disabled' %}selected{% endif %}>Deaktiviert</option>
+          </select>
+        </label>
+        <label>Statische Adresse (CIDR)
+          <input type="text" name="ipv6_address" value="{{ config.network.ipv6.static.address or '' }}" />
+          {% if current.ipv6.address %}<span class="muted">Aktuell: {{ current.ipv6.address }}</span>{% endif %}
+        </label>
+        <label>Gateway
+          <input type="text" name="ipv6_router" value="{{ config.network.ipv6.static.router or '' }}" />
+          {% if current.ipv6.router %}<span class="muted">Aktuell: {{ current.ipv6.router }}</span>{% endif %}
+        </label>
+        <label>DNS-Server (kommagetrennt)
+          <input type="text" name="ipv6_dns" value="{{ config.network.ipv6.static.dns | join(',') if config.network.ipv6.static.dns else '' }}" />
+          {% if current.ipv6.dns %}<span class="muted">System: {{ current.ipv6.dns | join(', ') }}</span>{% endif %}
+        </label>
+      </fieldset>
       <button type="submit">Einstellungen übernehmen</button>
     </form>
   </article>
@@ -41,7 +67,8 @@
       <li>Bei einer statischen Konfiguration sollten Adresse, Gateway und DNS-Server in demselben Subnetz liegen.</li>
       <li>Nach Änderungen empfiehlt sich ein kurzer Neustart der Netzwerkverbindung oder des Systems.</li>
       <li>Der aktuelle Hostname lautet <strong>{{ current.hostname or config.network.hostname or 'unbekannt' }}</strong>.</li>
-      <li>Aktive Adresse: <strong>{{ current.address or 'unbekannt' }}</strong>{% if current.router %}, Gateway: <strong>{{ current.router }}</strong>{% endif %}.</li>
+      <li>Aktive IPv4-Adresse: <strong>{{ current.ipv4.address or 'unbekannt' }}</strong>{% if current.ipv4.router %}, Gateway: <strong>{{ current.ipv4.router }}</strong>{% endif %}.</li>
+      <li>Aktive IPv6-Adresse: <strong>{{ current.ipv6.address or 'unbekannt' }}</strong>{% if current.ipv6.router %}, Gateway: <strong>{{ current.ipv6.router }}</strong>{% endif %}.</li>
       {% if current.dns %}<li>DNS-Server laut System: <strong>{{ current.dns | join(', ') }}</strong></li>{% endif %}
     </ul>
   </article>

@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - Fallback für frühe Initialisierung
 
 UPDATE_LOG = DATA_DIR / "logs" / "update.log"
 DIAGNOSTICS_LOG = DATA_DIR / "logs" / "diagnostics.log"
+SMART_TEST_LOG = DATA_DIR / "logs" / "smart-tests.log"
 
 
 def resolve_hostname() -> str:
@@ -72,6 +73,7 @@ class SystemManager:
         self.fallback_repo = fallback_repo
         self.update_log_path = UPDATE_LOG
         self.diagnostics_log_path = DIAGNOSTICS_LOG
+        self.smart_test_log_path = SMART_TEST_LOG
         detected_repo = self._read_install_file(self.install_repo_file)
         if detected_repo:
             self.fallback_repo = detected_repo
@@ -412,6 +414,78 @@ class SystemManager:
         devices_info["devices"].sort(key=lambda item: item.get("path") or "")
         return devices_info
 
+    def run_smart_test(self, device_path: str, test: str = "short") -> str:
+        if not device_path or not device_path.startswith("/dev/"):
+            raise ValueError("Ungültiger Gerätepfad")
+        if shutil.which("smartctl") is None:
+            raise FileNotFoundError("smartctl ist nicht verfügbar")
+        normalized_test = (test or "short").strip().lower()
+        allowed_tests = {"short", "long", "conveyance"}
+        if normalized_test not in allowed_tests:
+            raise ValueError("Unbekannter SMART-Test")
+
+        candidates: List[Optional[str]] = [None]
+        candidates.extend(self._smartctl_candidate_types(device_path))
+        candidates.append("auto")
+        seen: Set[Optional[str]] = set()
+        detection_error = False
+        last_error: Optional[str] = None
+
+        for device_type in candidates:
+            if device_type in seen:
+                continue
+            seen.add(device_type)
+            command = ["smartctl"]
+            if device_type:
+                command.extend(["-d", device_type])
+            command.extend(["-t", normalized_test, device_path])
+            try:
+                result = self._run(command, use_sudo=True, check=False, capture=True)
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.exception("SMART-Test für %s konnte nicht gestartet werden: %s", device_path, exc)
+                raise RuntimeError("SMART-Test konnte nicht gestartet werden") from exc
+            if not isinstance(result, subprocess.CompletedProcess):
+                raise RuntimeError("smartctl konnte nicht ausgeführt werden")
+            output_parts: List[str] = []
+            if result.stdout:
+                output_parts.append(result.stdout.strip())
+            if result.stderr:
+                output_parts.append(result.stderr.strip())
+            output = "\n".join(part for part in output_parts if part).strip()
+            if result.returncode in (0, 2):
+                self._log_smart_test(device_path, command, output)
+                label = {
+                    "short": "Kurztest",
+                    "long": "Langtest",
+                    "conveyance": "Transporttest",
+                }.get(normalized_test, normalized_test)
+                message = f"SMART-{label} für {device_path} gestartet."
+                info_line = ""
+                for line in output.splitlines():
+                    stripped = line.strip()
+                    if stripped and not stripped.lower().startswith("smartctl"):
+                        info_line = stripped
+                if info_line:
+                    message = f"{message} {info_line}"
+                return message
+            lower_output = output.lower()
+            if "unknown device type" in lower_output or self._smartctl_requires_device_type(output):
+                detection_error = True
+                continue
+            if lower_output:
+                last_error = output
+            else:
+                last_error = f"smartctl Status {result.returncode}"
+
+        device_lower = device_path.lower()
+        if detection_error and ("mmcblk" in device_lower or "/mmc" in device_lower):
+            raise RuntimeError(
+                "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert spezielle Unterstützung für SD-/MMC-Karten."
+            )
+        if detection_error:
+            raise RuntimeError("Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Test abgebrochen.")
+        raise RuntimeError(last_error or "SMART-Test konnte nicht gestartet werden")
+
     def run_diagnostics(self, mode: str = "check") -> subprocess.Popen:
         normalized = (mode or "check").strip().lower()
         if normalized not in {"check", "repair"}:
@@ -727,6 +801,9 @@ class SystemManager:
             output = "\n".join(part for part in output_parts if part).strip()
             last_output = output
             last_result = result
+            if output and "unknown device type" in output.lower():
+                detection_error = True
+                continue
             if self._smartctl_requires_device_type(output):
                 detection_error = True
                 continue
@@ -854,6 +931,29 @@ class SystemManager:
         description = log_description or header_text
         LOGGER.info("%s (PID %s)", description, getattr(process, "pid", "?"))
         return process
+
+    def _log_smart_test(self, device_path: str, command: List[str], output: str) -> None:
+        log_path = self.smart_test_log_path
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        command_repr = " ".join(shlex.quote(part) for part in command)
+        lines = [
+            f"[{timestamp}] SMART-Test gestartet",
+            f"Gerät: {device_path}",
+            f"Befehl: {command_repr}",
+        ]
+        if output:
+            lines.append(output)
+        try:
+            with log_path.open("a", encoding="utf-8") as handle:
+                if handle.tell() > 0:
+                    handle.write("\n")
+                handle.write("\n".join(lines) + "\n")
+        except OSError as exc:
+            LOGGER.debug("SMART-Test-Log konnte nicht geschrieben werden: %s", exc)
 
     def _detect_resolution_from_xrandr(self) -> Optional[str]:
         try:
