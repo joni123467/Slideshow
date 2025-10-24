@@ -2,180 +2,258 @@
 {% block title %}System – Slideshow{% endblock %}
 {% block content %}
 <section class="grid system-grid">
-  <article class="system-overview">
-    <h2>Systemübersicht</h2>
-    <ul class="system-stats">
-      <li>
-        <span class="label">Hostname</span>
-        <span class="value">{{ system_overview.hostname }}</span>
-      </li>
-      <li>
-        <span class="label">IP-Adressen</span>
-        <span class="value">{{ system_overview.ip_addresses|join(', ') if system_overview.ip_addresses else '–' }}</span>
-      </li>
-      <li>
-        <span class="label">Laufzeit</span>
-        <span class="value">{{ system_overview.uptime_human or '–' }}</span>
-      </li>
-      <li>
-        <span class="label">CPU-Last (1/5/15)</span>
-        <span class="value">
-          {% if system_overview.load_avg %}
-            {{ '%.2f' % system_overview.load_avg['1'] }} / {{ '%.2f' % system_overview.load_avg['5'] }} / {{ '%.2f' % system_overview.load_avg['15'] }}
-          {% else %}
-            –
-          {% endif %}
-        </span>
-      </li>
-    </ul>
-    <div class="system-usage">
-      <div class="status-block">
-        <h3>Arbeitsspeicher</h3>
-        {% if system_overview.memory %}
-        <p>
-          <strong>{{ system_overview.memory.used|filesize }}</strong>
-          von {{ system_overview.memory.total|filesize }}
-          ({{ system_overview.memory.percent|percent or '–' }}) belegt
-        </p>
-        {% else %}
-        <p class="muted">Keine Informationen verfügbar.</p>
-        {% endif %}
-      </div>
-      {% if system_overview.swap %}
-      <div class="status-block">
-        <h3>Swap</h3>
-        <p>
-          <strong>{{ system_overview.swap.used|filesize }}</strong>
-          von {{ system_overview.swap.total|filesize }}
-          ({{ system_overview.swap.percent|percent or '–' }}) belegt
-        </p>
-      </div>
-      {% endif %}
+  <article class="system-tabs" data-tabs>
+    <div class="tab-controls" role="tablist">
+      <button
+        type="button"
+        class="tab-control is-active"
+        role="tab"
+        id="tab-system-overview"
+        aria-controls="panel-system-overview"
+        aria-selected="true"
+        data-tab-target="panel-system-overview"
+      >
+        Systemübersicht
+      </button>
+      <button
+        type="button"
+        class="tab-control"
+        role="tab"
+        id="tab-storage-overview"
+        aria-controls="panel-storage-overview"
+        aria-selected="false"
+        data-tab-target="panel-storage-overview"
+      >
+        Speichergeräte
+      </button>
     </div>
-    {% if system_overview.disk_usage %}
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Speicher</th>
-            <th>Belegt</th>
-            <th>Frei</th>
-            <th>Auslastung</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for disk in system_overview.disk_usage %}
-          <tr>
-            <td>
-              <strong>{{ disk.label }}</strong><br />
-              <span class="muted">{{ disk.path }}</span>
-            </td>
-            <td>{{ disk.used|filesize }}</td>
-            <td>{{ disk.free|filesize }}</td>
-            <td>
-              {% if disk.percent is not none %}
-                {{ disk.percent|percent }}
-              {% else %}
-                –
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-  </article>
-
-  <article class="storage-overview">
-    <h2>Speichergeräte</h2>
-    {% if not storage_info.smartctl_available %}
-    <p class="muted storage-warning">SMART-Informationen stehen nicht zur Verfügung. Stelle sicher, dass die smartmontools installiert sind.</p>
-    {% endif %}
-    {% if storage_info.errors %}
-    <ul class="storage-warning">
-      {% for message in storage_info.errors %}
-      <li>{{ message }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-    {% if storage_info.devices %}
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Gerät</th>
-            <th>Größe</th>
-            <th>Einhängepunkte</th>
-            <th>SMART-Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for device in storage_info.devices %}
-          <tr>
-            <td>
-              <strong>{{ device.name }}</strong><br />
-              <span class="muted">{{ device.path }}</span>
-              {% if device.model %}<div class="muted">{{ device.model }}</div>{% endif %}
-              {% if device.serial %}<div class="muted">Seriennummer: {{ device.serial }}</div>{% endif %}
-            </td>
-            <td>{{ device.size|filesize }}</td>
-            <td>
-              {% if device.mountpoints %}
-                {% for mount in device.mountpoints %}
-                  <code>{{ mount }}</code>{% if not loop.last %}<br />{% endif %}
-                {% endfor %}
-              {% else %}
-                <span class="muted">Nicht eingehängt</span>
-              {% endif %}
-            </td>
-            <td class="device-smart">
-              {% set indicator = device.smart.indicator or 'neutral' %}
-              <span class="status-indicator status-indicator--{{ indicator }}">
-                {% if device.smart.health %}
-                  {{ device.smart.health }}
-                {% elif device.smart.message %}
-                  {{ device.smart.message }}
+    <div class="tab-panels">
+      <section
+        id="panel-system-overview"
+        class="tab-panel is-active"
+        role="tabpanel"
+        aria-labelledby="tab-system-overview"
+        data-tab-panel="panel-system-overview"
+      >
+        <div class="system-overview">
+          <h2>Systemübersicht</h2>
+          <div class="system-summary-grid">
+            <div class="system-card">
+              <span class="system-card__title">Hostname</span>
+              <span class="system-card__value">{{ system_overview.hostname }}</span>
+            </div>
+            <div class="system-card">
+              <span class="system-card__title">IP-Adressen</span>
+              <span class="system-card__value">
+                {% if system_overview.ip_addresses %}
+                  {% for address in system_overview.ip_addresses %}
+                    <code>{{ address }}</code>{% if not loop.last %}<br />{% endif %}
+                  {% endfor %}
                 {% else %}
-                  Keine Daten
+                  <span class="muted">–</span>
                 {% endif %}
               </span>
-              {% if device.smart.temperature %}
-              <div class="muted">Temperatur: {{ device.smart.temperature }}</div>
+            </div>
+            <div class="system-card">
+              <span class="system-card__title">Laufzeit</span>
+              <span class="system-card__value">{{ system_overview.uptime_human or '–' }}</span>
+              {% if system_overview.uptime_seconds %}
+              <span class="system-card__meta">{{ system_overview.uptime_seconds|int }} Sekunden</span>
               {% endif %}
-              {% if device.smart.details %}
-              <details class="device-smart-details">
-                <summary>Details anzeigen</summary>
-                <pre>{{ device.smart.details }}</pre>
-              </details>
+            </div>
+            <div class="system-card">
+              <span class="system-card__title">CPU-Kerne</span>
+              <span class="system-card__value">{{ system_overview.cpu_count }}</span>
+            </div>
+          </div>
+          {% set load_avg = system_overview.load_avg %}
+          <div class="system-load">
+            <div class="system-card system-card--wide">
+              <span class="system-card__title">CPU-Last (1 / 5 / 15)</span>
+              <span class="system-card__value">
+                {% if load_avg %}
+                  {{ '%.2f' % load_avg['1'] }} / {{ '%.2f' % load_avg['5'] }} / {{ '%.2f' % load_avg['15'] }}
+                {% else %}
+                  –
+                {% endif %}
+              </span>
+              {% if load_avg and load_avg.get('per_cpu') %}
+              <span class="system-card__meta">
+                je Kern: {{ '%.2f' % load_avg['per_cpu']['1'] }} / {{ '%.2f' % load_avg['per_cpu']['5'] }} / {{ '%.2f' % load_avg['per_cpu']['15'] }}
+              </span>
               {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            </div>
+          </div>
+          <div class="system-usage">
+            <div class="status-block">
+              <h3>Arbeitsspeicher</h3>
+              {% if system_overview.memory %}
+              <p>
+                <strong>{{ system_overview.memory.used|filesize }}</strong>
+                von {{ system_overview.memory.total|filesize }}
+              </p>
+              {% set mem_percent = system_overview.memory.percent or 0 %}
+              <div class="usage-bar" aria-hidden="true">
+                <div class="usage-bar__fill" style="width: {{ [mem_percent, 100]|min|round(1) }}%;"></div>
+              </div>
+              <p class="usage-bar__label">{{ system_overview.memory.percent|percent or '–' }} belegt</p>
+              {% else %}
+              <p class="muted">Keine Informationen verfügbar.</p>
+              {% endif %}
+            </div>
+            {% if system_overview.swap %}
+            <div class="status-block">
+              <h3>Swap</h3>
+              <p>
+                <strong>{{ system_overview.swap.used|filesize }}</strong>
+                von {{ system_overview.swap.total|filesize }}
+              </p>
+              {% set swap_percent = system_overview.swap.percent or 0 %}
+              <div class="usage-bar" aria-hidden="true">
+                <div class="usage-bar__fill" style="width: {{ [swap_percent, 100]|min|round(1) }}%;"></div>
+              </div>
+              <p class="usage-bar__label">{{ system_overview.swap.percent|percent or '–' }} belegt</p>
+            </div>
+            {% endif %}
+          </div>
+          {% if system_overview.disk_usage %}
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Speicher</th>
+                  <th>Belegt</th>
+                  <th>Frei</th>
+                  <th>Auslastung</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for disk in system_overview.disk_usage %}
+                <tr>
+                  <td>
+                    <strong>{{ disk.label }}</strong><br />
+                    <span class="muted">{{ disk.path }}</span>
+                  </td>
+                  <td>{{ disk.used|filesize }}</td>
+                  <td>{{ disk.free|filesize }}</td>
+                  <td>
+                    {% if disk.percent is not none %}
+                    {% set disk_percent = disk.percent %}
+                    <div class="usage-bar" aria-hidden="true">
+                      <div class="usage-bar__fill" style="width: {{ [disk_percent, 100]|min|round(1) }}%;"></div>
+                    </div>
+                    <span class="usage-bar__label">{{ disk.percent|percent }}</span>
+                    {% else %}
+                    <span class="muted">–</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      <section
+        id="panel-storage-overview"
+        class="tab-panel"
+        role="tabpanel"
+        aria-labelledby="tab-storage-overview"
+        data-tab-panel="panel-storage-overview"
+      >
+        <div class="storage-overview">
+          <h2>Speichergeräte</h2>
+          {% if not storage_info.smartctl_available %}
+          <p class="muted storage-warning">SMART-Informationen stehen nicht zur Verfügung. Stelle sicher, dass die smartmontools installiert sind.</p>
+          {% endif %}
+          {% if storage_info.errors %}
+          <ul class="storage-warning">
+            {% for message in storage_info.errors %}
+            <li>{{ message }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% if storage_info.devices %}
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Gerät</th>
+                  <th>Größe</th>
+                  <th>Einhängepunkte</th>
+                  <th>SMART-Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for device in storage_info.devices %}
+                <tr>
+                  <td>
+                    <strong>{{ device.name }}</strong><br />
+                    <span class="muted">{{ device.path }}</span>
+                    {% if device.model %}<div class="muted">{{ device.model }}</div>{% endif %}
+                    {% if device.serial %}<div class="muted">Seriennummer: {{ device.serial }}</div>{% endif %}
+                  </td>
+                  <td>{{ device.size|filesize }}</td>
+                  <td>
+                    {% if device.mountpoints %}
+                      {% for mount in device.mountpoints %}
+                        <code>{{ mount }}</code>{% if not loop.last %}<br />{% endif %}
+                      {% endfor %}
+                    {% else %}
+                      <span class="muted">Nicht eingehängt</span>
+                    {% endif %}
+                  </td>
+                  <td class="device-smart">
+                    {% set indicator = device.smart.indicator or 'neutral' %}
+                    <span class="status-indicator status-indicator--{{ indicator }}">
+                      {% if device.smart.health %}
+                        {{ device.smart.health }}
+                      {% elif device.smart.message %}
+                        {{ device.smart.message }}
+                      {% else %}
+                        Keine Daten
+                      {% endif %}
+                    </span>
+                    {% if device.smart.temperature %}
+                    <div class="muted">Temperatur: {{ device.smart.temperature }}</div>
+                    {% endif %}
+                    {% if device.smart.details %}
+                    <details class="device-smart-details">
+                      <summary>Details anzeigen</summary>
+                      <pre>{{ device.smart.details }}</pre>
+                    </details>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="muted">Keine Datenträgerinformationen verfügbar.</p>
+          {% endif %}
+          <div class="button-row">
+            <form method="post" action="{{ url_for('system_diagnostics') }}">
+              <input type="hidden" name="mode" value="check" />
+              <button type="submit">Systemprüfung starten</button>
+            </form>
+            <form method="post" action="{{ url_for('system_diagnostics') }}">
+              <input type="hidden" name="mode" value="repair" />
+              <button type="submit" class="danger">Reparatur ausführen</button>
+            </form>
+          </div>
+          <p class="muted">
+            Letzte Diagnose:
+            {% if diagnostics_info.exists and diagnostics_info.last_run %}
+              {{ diagnostics_info.last_run|datetimeformat }}
+            {% else %}
+              Noch keine Ausführung
+            {% endif %} – Ergebnisse im Log <code>diagnostics.log</code> einsehbar.
+          </p>
+        </div>
+      </section>
     </div>
-    {% else %}
-    <p class="muted">Keine Datenträgerinformationen verfügbar.</p>
-    {% endif %}
-    <div class="button-row">
-      <form method="post" action="{{ url_for('system_diagnostics') }}">
-        <input type="hidden" name="mode" value="check" />
-        <button type="submit">Systemprüfung starten</button>
-      </form>
-      <form method="post" action="{{ url_for('system_diagnostics') }}">
-        <input type="hidden" name="mode" value="repair" />
-        <button type="submit" class="danger">Reparatur ausführen</button>
-      </form>
-    </div>
-    <p class="muted">
-      Letzte Diagnose:
-      {% if diagnostics_info.exists and diagnostics_info.last_run %}
-        {{ diagnostics_info.last_run|datetimeformat }}
-      {% else %}
-        Noch keine Ausführung
-      {% endif %} – Ergebnisse im Log <code>diagnostics.log</code> einsehbar.
-    </p>
   </article>
 
   <article>
@@ -309,6 +387,44 @@
 {{ super() }}
 <script>
   document.addEventListener('DOMContentLoaded', () => {
+    const tabContainers = document.querySelectorAll('[data-tabs]');
+    tabContainers.forEach((container) => {
+      const buttons = Array.from(container.querySelectorAll('.tab-control'));
+      const panels = Array.from(container.querySelectorAll('[data-tab-panel]'));
+
+      const activate = (target) => {
+        buttons.forEach((button) => {
+          const isActive = button.dataset.tabTarget === target;
+          button.classList.toggle('is-active', isActive);
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          button.setAttribute('tabindex', isActive ? '0' : '-1');
+        });
+        panels.forEach((panel) => {
+          const isActive = panel.dataset.tabPanel === target;
+          panel.classList.toggle('is-active', isActive);
+          if (isActive) {
+            panel.removeAttribute('hidden');
+          } else {
+            panel.setAttribute('hidden', 'hidden');
+          }
+        });
+      };
+
+      buttons.forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.dataset.tabTarget) {
+            activate(button.dataset.tabTarget);
+          }
+        });
+      });
+
+      const initial = buttons.find((button) => button.classList.contains('is-active'))
+        || buttons[0];
+      if (initial && initial.dataset.tabTarget) {
+        activate(initial.dataset.tabTarget);
+      }
+    });
+
     const select = document.getElementById('log-select');
     const output = document.getElementById('log-output');
     const linesInput = document.getElementById('log-lines');
