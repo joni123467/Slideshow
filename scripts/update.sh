@@ -114,6 +114,13 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+export DEBIAN_FRONTEND=noninteractive
+REQUIRED_PACKAGES=(smartmontools nvme-cli)
+apt-get update
+if [[ ${#REQUIRED_PACKAGES[@]} -gt 0 ]]; then
+  apt-get install -y --no-install-recommends "${REQUIRED_PACKAGES[@]}"
+fi
+
 if [[ -z "$BRANCH" && -f "$BRANCH_FILE" ]]; then
   BRANCH=$(cat "$BRANCH_FILE")
 fi
@@ -156,12 +163,11 @@ rsync -a --delete \
 echo "$BRANCH" > "$BRANCH_FILE"
 echo "$REPO_SLUG" > "$REPO_FILE"
 
-if [[ -f "$APP_DIR/scripts/mount_smb.sh" ]]; then
-  chmod +x "$APP_DIR/scripts/mount_smb.sh"
-fi
-if [[ -f "$APP_DIR/scripts/update.sh" ]]; then
-  chmod +x "$APP_DIR/scripts/update.sh"
-fi
+for helper_script in mount_smb.sh update.sh system_diagnostics.sh; do
+  if [[ -f "$APP_DIR/scripts/$helper_script" ]]; then
+    chmod +x "$APP_DIR/scripts/$helper_script"
+  fi
+done
 
 if [[ -f "$APP_DIR/pyproject.toml" ]]; then
   "$VENV_DIR/bin/pip" install --upgrade pip

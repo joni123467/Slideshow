@@ -2,6 +2,182 @@
 {% block title %}System – Slideshow{% endblock %}
 {% block content %}
 <section class="grid system-grid">
+  <article class="system-overview">
+    <h2>Systemübersicht</h2>
+    <ul class="system-stats">
+      <li>
+        <span class="label">Hostname</span>
+        <span class="value">{{ system_overview.hostname }}</span>
+      </li>
+      <li>
+        <span class="label">IP-Adressen</span>
+        <span class="value">{{ system_overview.ip_addresses|join(', ') if system_overview.ip_addresses else '–' }}</span>
+      </li>
+      <li>
+        <span class="label">Laufzeit</span>
+        <span class="value">{{ system_overview.uptime_human or '–' }}</span>
+      </li>
+      <li>
+        <span class="label">CPU-Last (1/5/15)</span>
+        <span class="value">
+          {% if system_overview.load_avg %}
+            {{ '%.2f' % system_overview.load_avg['1'] }} / {{ '%.2f' % system_overview.load_avg['5'] }} / {{ '%.2f' % system_overview.load_avg['15'] }}
+          {% else %}
+            –
+          {% endif %}
+        </span>
+      </li>
+    </ul>
+    <div class="system-usage">
+      <div class="status-block">
+        <h3>Arbeitsspeicher</h3>
+        {% if system_overview.memory %}
+        <p>
+          <strong>{{ system_overview.memory.used|filesize }}</strong>
+          von {{ system_overview.memory.total|filesize }}
+          ({{ system_overview.memory.percent|percent or '–' }}) belegt
+        </p>
+        {% else %}
+        <p class="muted">Keine Informationen verfügbar.</p>
+        {% endif %}
+      </div>
+      {% if system_overview.swap %}
+      <div class="status-block">
+        <h3>Swap</h3>
+        <p>
+          <strong>{{ system_overview.swap.used|filesize }}</strong>
+          von {{ system_overview.swap.total|filesize }}
+          ({{ system_overview.swap.percent|percent or '–' }}) belegt
+        </p>
+      </div>
+      {% endif %}
+    </div>
+    {% if system_overview.disk_usage %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Speicher</th>
+            <th>Belegt</th>
+            <th>Frei</th>
+            <th>Auslastung</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for disk in system_overview.disk_usage %}
+          <tr>
+            <td>
+              <strong>{{ disk.label }}</strong><br />
+              <span class="muted">{{ disk.path }}</span>
+            </td>
+            <td>{{ disk.used|filesize }}</td>
+            <td>{{ disk.free|filesize }}</td>
+            <td>
+              {% if disk.percent is not none %}
+                {{ disk.percent|percent }}
+              {% else %}
+                –
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </article>
+
+  <article class="storage-overview">
+    <h2>Speichergeräte</h2>
+    {% if not storage_info.smartctl_available %}
+    <p class="muted storage-warning">SMART-Informationen stehen nicht zur Verfügung. Stelle sicher, dass die smartmontools installiert sind.</p>
+    {% endif %}
+    {% if storage_info.errors %}
+    <ul class="storage-warning">
+      {% for message in storage_info.errors %}
+      <li>{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if storage_info.devices %}
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Gerät</th>
+            <th>Größe</th>
+            <th>Einhängepunkte</th>
+            <th>SMART-Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for device in storage_info.devices %}
+          <tr>
+            <td>
+              <strong>{{ device.name }}</strong><br />
+              <span class="muted">{{ device.path }}</span>
+              {% if device.model %}<div class="muted">{{ device.model }}</div>{% endif %}
+              {% if device.serial %}<div class="muted">Seriennummer: {{ device.serial }}</div>{% endif %}
+            </td>
+            <td>{{ device.size|filesize }}</td>
+            <td>
+              {% if device.mountpoints %}
+                {% for mount in device.mountpoints %}
+                  <code>{{ mount }}</code>{% if not loop.last %}<br />{% endif %}
+                {% endfor %}
+              {% else %}
+                <span class="muted">Nicht eingehängt</span>
+              {% endif %}
+            </td>
+            <td class="device-smart">
+              {% set indicator = device.smart.indicator or 'neutral' %}
+              <span class="status-indicator status-indicator--{{ indicator }}">
+                {% if device.smart.health %}
+                  {{ device.smart.health }}
+                {% elif device.smart.message %}
+                  {{ device.smart.message }}
+                {% else %}
+                  Keine Daten
+                {% endif %}
+              </span>
+              {% if device.smart.temperature %}
+              <div class="muted">Temperatur: {{ device.smart.temperature }}</div>
+              {% endif %}
+              {% if device.smart.details %}
+              <details class="device-smart-details">
+                <summary>Details anzeigen</summary>
+                <pre>{{ device.smart.details }}</pre>
+              </details>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">Keine Datenträgerinformationen verfügbar.</p>
+    {% endif %}
+    <div class="button-row">
+      <form method="post" action="{{ url_for('system_diagnostics') }}">
+        <input type="hidden" name="mode" value="check" />
+        <button type="submit">Systemprüfung starten</button>
+      </form>
+      <form method="post" action="{{ url_for('system_diagnostics') }}">
+        <input type="hidden" name="mode" value="repair" />
+        <button type="submit" class="danger">Reparatur ausführen</button>
+      </form>
+    </div>
+    <p class="muted">
+      Letzte Diagnose:
+      {% if diagnostics_info.exists and diagnostics_info.last_run %}
+        {{ diagnostics_info.last_run|datetimeformat }}
+      {% else %}
+        Noch keine Ausführung
+      {% endif %} – Ergebnisse im Log <code>diagnostics.log</code> einsehbar.
+    </p>
+  </article>
+
   <article>
     <h2>Updates</h2>
     {% if has_branch_info %}
