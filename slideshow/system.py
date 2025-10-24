@@ -11,9 +11,11 @@ import shlex
 import shutil
 import socket
 import subprocess
+import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +75,8 @@ class SystemManager:
         detected_repo = self._read_install_file(self.install_repo_file)
         if detected_repo:
             self.fallback_repo = detected_repo
+        self._last_cpu_times: Optional[Tuple[int, int]] = None
+        self._last_cpu_usage: Optional[float] = None
 
     # Git/Deployment --------------------------------------------------
     def current_branch(self) -> Optional[str]:
@@ -131,26 +135,42 @@ class SystemManager:
     def update(self, branch: str) -> subprocess.Popen:
         if not branch:
             raise ValueError("Branch darf nicht leer sein")
-        script = self.scripts_dir / "update.sh"
-        if script.exists():
-            cmd = ["bash", str(script), branch]
+        remote_script: Optional[pathlib.Path] = None
+        try:
+            remote_script = self._download_update_script(branch)
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Aktuelles Update-Skript konnte nicht geladen werden: %s", exc)
+        if remote_script:
+            branch_arg = shlex.quote(branch)
+            script_arg = shlex.quote(str(remote_script))
+            cleanup = (
+                f"tmp_script={script_arg}; "
+                "chmod +x \"$tmp_script\"; "
+                f"bash \"$tmp_script\" {branch_arg}; "
+                "status=$?; rm -f \"$tmp_script\"; exit $status"
+            )
+            cmd = ["bash", "-lc", cleanup]
         else:
-            if not self._has_git_repo():
-                raise RuntimeError("Keine Git-Installation vorhanden, Update nicht möglich")
-            repo_path = shlex.quote(str(self.repo_dir))
-            remote_branch = shlex.quote(branch)
-            cmd = [
-                "bash",
-                "-lc",
-                (
-                    "set -euo pipefail; "
-                    f"cd {repo_path}; "
-                    f"git fetch origin {remote_branch}; "
-                    f"git checkout {remote_branch}; "
-                    f"git reset --hard origin/{remote_branch}; "
-                    f"echo {shlex.quote(branch)} > {shlex.quote(str(self.install_branch_file))}"
-                ),
-            ]
+            script = self.scripts_dir / "update.sh"
+            if script.exists():
+                cmd = ["bash", str(script), branch]
+            else:
+                if not self._has_git_repo():
+                    raise RuntimeError("Keine Git-Installation vorhanden, Update nicht möglich")
+                repo_path = shlex.quote(str(self.repo_dir))
+                remote_branch = shlex.quote(branch)
+                cmd = [
+                    "bash",
+                    "-lc",
+                    (
+                        "set -euo pipefail; "
+                        f"cd {repo_path}; "
+                        f"git fetch origin {remote_branch}; "
+                        f"git checkout {remote_branch}; "
+                        f"git reset --hard origin/{remote_branch}; "
+                        f"echo {shlex.quote(branch)} > {shlex.quote(str(self.install_branch_file))}"
+                    ),
+                ]
         process = self._spawn_with_log(cmd, use_sudo=True, branch=branch)
         if not isinstance(process, subprocess.Popen):
             raise RuntimeError("Update konnte nicht gestartet werden")
@@ -201,6 +221,7 @@ class SystemManager:
             "uptime_human": None,
             "cpu_count": os.cpu_count() or 1,
             "load_avg": None,
+            "cpu_usage_percent": None,
             "memory": {},
             "swap": {},
             "disk_usage": [],
@@ -226,6 +247,14 @@ class SystemManager:
             }
         except (OSError, AttributeError):
             overview["load_avg"] = None
+
+        cpu_usage = self._cpu_usage_percent()
+        if cpu_usage is None and overview["load_avg"]:
+            per_cpu_load = overview["load_avg"].get("per_cpu", {}).get("1")
+            if per_cpu_load is not None:
+                cpu_usage = max(0.0, min(per_cpu_load * 100.0, 100.0))
+        if cpu_usage is not None:
+            overview["cpu_usage_percent"] = cpu_usage
 
         meminfo = self._read_meminfo()
         mem_total = meminfo.get("MemTotal")
@@ -283,6 +312,51 @@ class SystemManager:
             )
 
         return overview
+
+    def _cpu_usage_percent(self) -> Optional[float]:
+        current = self._read_cpu_times()
+        if not current:
+            return None
+        last = self._last_cpu_times
+        self._last_cpu_times = current
+        if not last:
+            return self._last_cpu_usage
+        current_total, current_idle = current
+        last_total, last_idle = last
+        total_delta = current_total - last_total
+        idle_delta = current_idle - last_idle
+        if total_delta <= 0:
+            return self._last_cpu_usage
+        usage = 100.0 * (1.0 - (idle_delta / total_delta))
+        usage = max(0.0, min(usage, 100.0))
+        self._last_cpu_usage = usage
+        return usage
+
+    def _read_cpu_times(self) -> Optional[Tuple[int, int]]:
+        try:
+            with open("/proc/stat", "r", encoding="utf-8") as handle:
+                line = handle.readline()
+        except OSError:
+            return None
+        if not line:
+            return None
+        parts = line.split()
+        if not parts or parts[0] != "cpu":
+            return None
+        numeric_values: List[int] = []
+        for value in parts[1:]:
+            try:
+                numeric_values.append(int(value))
+            except ValueError:
+                try:
+                    numeric_values.append(int(float(value)))
+                except ValueError:
+                    return None
+        if not numeric_values:
+            return None
+        total = sum(numeric_values)
+        idle = numeric_values[3] if len(numeric_values) > 3 else 0
+        return total, idle
 
     def storage_devices(self) -> Dict[str, Any]:
         devices_info: Dict[str, Any] = {
@@ -511,54 +585,48 @@ class SystemManager:
             "details": None,
             "indicator": "neutral",
         }
-        command = ["smartctl", "-H", "-i", "-A", device_path]
-        try:
-            result = self._run(command, use_sudo=True, check=False, capture=True)
-        except Exception as exc:  # pragma: no cover - defensive
-            LOGGER.debug("smartctl für %s fehlgeschlagen: %s", device_path, exc)
-            info["message"] = str(exc)
+        result, output, error_message = self._invoke_smartctl(device_path)
+        if output:
+            info["details"] = output[-8000:] if len(output) > 8000 else output
+        if error_message:
+            info["message"] = error_message
             info["indicator"] = "info"
-            info["error"] = f"{device_path}: {exc}"
+            lower_path = device_path.lower()
+            if "mmcblk" not in lower_path and "/mmc" not in lower_path:
+                info["error"] = f"{device_path}: {error_message}"
             return info
-        if not isinstance(result, subprocess.CompletedProcess):
+        if result is None:
             info["message"] = "smartctl lieferte kein Ergebnis"
             info["indicator"] = "info"
             info["error"] = f"{device_path}: smartctl konnte nicht ausgeführt werden"
             return info
-        output_parts: List[str] = []
-        if result.stdout:
-            output_parts.append(result.stdout)
-        if result.stderr:
-            output_parts.append(result.stderr)
-        output = "\n".join(part for part in output_parts if part).strip()
-        if len(output) > 8000:
-            info["details"] = output[-8000:]
-        else:
-            info["details"] = output
-        lower_output = output.lower()
+        lower_output = (output or "").lower()
         if "permission denied" in lower_output:
             info["message"] = "Zugriff verweigert (sudo-Berechtigung erforderlich)"
         supports_smart = False
         health: Optional[str] = None
-        for line in output.splitlines():
+        for line in (output or "").splitlines():
             normalized = line.strip()
             if not normalized:
                 continue
-            if "smart support is" in normalized.lower():
+            lowered_line = normalized.lower()
+            if "smart support is" in lowered_line:
                 text = normalized.split(":", 1)[-1].strip()
-                supports_smart = not any(keyword in text.lower() for keyword in ("unavailable", "disabled", "not available"))
+                supports_smart = not any(
+                    keyword in text.lower() for keyword in ("unavailable", "disabled", "not available")
+                )
                 if not supports_smart:
                     info["message"] = text
-            if "smart overall-health" in normalized.lower() or "smart health status" in normalized.lower():
+            if (
+                "smart overall-health" in lowered_line
+                or "smart health status" in lowered_line
+                or "overall-health self-assessment" in lowered_line
+            ):
                 parts = normalized.split(":", 1)
                 if len(parts) == 2:
                     health = parts[1].strip()
                 else:
                     health = normalized
-            elif "overall-health self-assessment" in normalized.lower():
-                parts = normalized.split(":", 1)
-                if len(parts) == 2:
-                    health = parts[1].strip()
         if "nvme log" in lower_output and "health information" in lower_output:
             supports_smart = True
         if "does not support smart" in lower_output:
@@ -583,6 +651,114 @@ class SystemManager:
             info["indicator"] = "info" if info["indicator"] == "ok" else info["indicator"]
             info["error"] = f"smartctl Status {result.returncode} für {device_path}"
         return info
+
+    def _download_update_script(self, branch: str) -> Optional[pathlib.Path]:
+        repo_slug = (self._read_install_file(self.install_repo_file) or self.fallback_repo or "").strip()
+        if not repo_slug:
+            return None
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        url = f"https://raw.githubusercontent.com/{repo_slug}/{encoded_branch}/scripts/update.sh"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                if response.status != 200:
+                    LOGGER.debug("Update-Skript konnte nicht geladen werden (%s): %s", response.status, url)
+                    return None
+                content = response.read()
+        except urllib.error.URLError as exc:  # pragma: no cover - Netzwerkfehler
+            LOGGER.debug("Fehler beim Laden des Update-Skripts von %s: %s", url, exc)
+            return None
+        if not content:
+            LOGGER.debug("Leeres Update-Skript von %s erhalten", url)
+            return None
+        safe_branch = re.sub(r"[^A-Za-z0-9._-]", "_", branch)
+        tmp_dir = DATA_DIR / "tmp"
+        try:
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        with tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, dir=str(tmp_dir), prefix=f"update_{safe_branch}_", suffix=".sh"
+        ) as handle:
+            handle.write(content)
+            temp_path = pathlib.Path(handle.name)
+        try:
+            temp_path.chmod(0o700)
+        except OSError:
+            pass
+        LOGGER.info("Verwende aktualisiertes Update-Skript aus %s", url)
+        return temp_path
+
+    def _invoke_smartctl(
+        self, device_path: str
+    ) -> Tuple[Optional[subprocess.CompletedProcess], str, Optional[str]]:
+        candidates: List[Optional[str]] = [None]
+        candidates.extend(self._smartctl_candidate_types(device_path))
+        candidates.append("auto")
+        seen: Set[Optional[str]] = set()
+        last_output = ""
+        last_result: Optional[subprocess.CompletedProcess] = None
+        detection_error = False
+        mmc_device = "mmcblk" in device_path.lower() or "/mmc" in device_path.lower()
+        for device_type in candidates:
+            if device_type in seen:
+                continue
+            seen.add(device_type)
+            command = ["smartctl"]
+            if device_type:
+                command.extend(["-d", device_type])
+            command.extend(["-H", "-i", "-A", device_path])
+            try:
+                result = self._run(command, use_sudo=True, check=False, capture=True)
+            except Exception as exc:  # pragma: no cover - defensive
+                LOGGER.debug(
+                    "smartctl für %s mit Gerätetyp %s fehlgeschlagen: %s",
+                    device_path,
+                    device_type or "auto",
+                    exc,
+                )
+                return None, "", str(exc)
+            if not isinstance(result, subprocess.CompletedProcess):
+                return None, "", "smartctl konnte nicht ausgeführt werden"
+            output_parts: List[str] = []
+            if result.stdout:
+                output_parts.append(result.stdout)
+            if result.stderr:
+                output_parts.append(result.stderr)
+            output = "\n".join(part for part in output_parts if part).strip()
+            last_output = output
+            last_result = result
+            if self._smartctl_requires_device_type(output):
+                detection_error = True
+                continue
+            return result, output, None
+        if detection_error:
+            if mmc_device:
+                message = (
+                    "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert spezielle Unterstützung "
+                    "für SD-/MMC-Karten."
+                )
+            else:
+                message = "Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Prüfung übersprungen."
+        else:
+            message = None
+        return last_result, last_output, message
+
+    def _smartctl_candidate_types(self, device_path: str) -> List[str]:
+        path_lower = device_path.lower()
+        candidates: List[str] = []
+        if "mmcblk" in path_lower or "/mmc" in path_lower:
+            candidates.extend(["mmc", "sdio", "scsi"])
+        if "nvme" in path_lower:
+            candidates.append("nvme")
+        if path_lower.startswith("/dev/sd") or path_lower.startswith("/dev/hd"):
+            candidates.extend(["sat", "ata"])
+        return candidates
+
+    def _smartctl_requires_device_type(self, output: str) -> bool:
+        if not output:
+            return False
+        lowered = output.lower()
+        return "unable to detect device type" in lowered or "please specify device type" in lowered
 
     def _extract_temperature(self, output: str) -> Optional[str]:
         if not output:

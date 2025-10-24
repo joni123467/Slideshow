@@ -572,6 +572,12 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             diagnostics_info=diagnostics_info,
         )
 
+    @app.route("/system/overview.json")
+    @pam_required
+    def system_overview_data():
+        overview = system_manager.system_overview()
+        return jsonify(overview)
+
     @app.route("/system/theme", methods=["POST"])
     @pam_required
     def update_theme():
