@@ -61,16 +61,63 @@
     </form>
   </article>
 
-  <article>
-    <h2>Hinweise</h2>
-    <ul class="hint-list">
-      <li>Bei einer statischen Konfiguration sollten Adresse, Gateway und DNS-Server in demselben Subnetz liegen.</li>
-      <li>Nach Änderungen empfiehlt sich ein kurzer Neustart der Netzwerkverbindung oder des Systems.</li>
-      <li>Der aktuelle Hostname lautet <strong>{{ current.hostname or config.network.hostname or 'unbekannt' }}</strong>.</li>
-      <li>Aktive IPv4-Adresse: <strong>{{ current.ipv4.address or 'unbekannt' }}</strong>{% if current.ipv4.router %}, Gateway: <strong>{{ current.ipv4.router }}</strong>{% endif %}.</li>
-      <li>Aktive IPv6-Adresse: <strong>{{ current.ipv6.address or 'unbekannt' }}</strong>{% if current.ipv6.router %}, Gateway: <strong>{{ current.ipv6.router }}</strong>{% endif %}.</li>
-      {% if current.dns %}<li>DNS-Server laut System: <strong>{{ current.dns | join(', ') }}</strong></li>{% endif %}
-    </ul>
+  <article class="network-overview">
+    <h2>Aktuelle Verbindung</h2>
+    {% set ipv4_mode_value = (current.ipv4.mode or config.network.ipv4.mode or 'dhcp') | lower %}
+    {% set ipv6_mode_value = (current.ipv6.mode or config.network.ipv6.mode or 'dhcp') | lower %}
+    <div class="network-status">
+      <section class="network-status__group">
+        <h3>Allgemein</h3>
+        <dl class="network-status__list">
+          <dt>Hostname</dt>
+          <dd>
+            {{ current.hostname or config.network.hostname or 'unbekannt' }}
+            {% if current.hostname and config.network.hostname and current.hostname != config.network.hostname %}
+              <span class="network-status__meta">Konfiguriert: {{ config.network.hostname }}</span>
+            {% endif %}
+          </dd>
+          <dt>Interface</dt>
+          <dd>{{ current.interface or config.network.interface or 'unbekannt' }}</dd>
+          <dt>IPv4-Modus</dt>
+          <dd>{{ {'dhcp': 'DHCP', 'static': 'Statisch'}[ipv4_mode_value] if ipv4_mode_value in ['dhcp', 'static'] else ipv4_mode_value|upper }}</dd>
+          <dt>IPv6-Modus</dt>
+          <dd>{{ {'dhcp': 'Automatisch', 'static': 'Statisch', 'disabled': 'Deaktiviert'}[ipv6_mode_value] if ipv6_mode_value in ['dhcp', 'static', 'disabled'] else ipv6_mode_value|upper }}</dd>
+        </dl>
+      </section>
+
+      <section class="network-status__group">
+        <h3>IPv4</h3>
+        <dl class="network-status__list">
+          <dt>Adresse</dt>
+          <dd>{{ current.ipv4.address or '–' }}</dd>
+          <dt>Gateway</dt>
+          <dd>{{ current.ipv4.router or '–' }}</dd>
+          <dt>DNS</dt>
+          <dd>{{ (current.ipv4.dns or []) | join(', ') or '–' }}</dd>
+        </dl>
+      </section>
+
+      <section class="network-status__group">
+        <h3>IPv6</h3>
+        <dl class="network-status__list">
+          <dt>Adresse</dt>
+          <dd>{{ current.ipv6.address or '–' }}</dd>
+          <dt>Gateway</dt>
+          <dd>{{ current.ipv6.router or '–' }}</dd>
+          <dt>DNS</dt>
+          <dd>{{ (current.ipv6.dns or []) | join(', ') or '–' }}</dd>
+        </dl>
+      </section>
+    </div>
+
+    <section class="network-hints-card">
+      <h3>Hinweise</h3>
+      <ul class="network-hints">
+        <li>Bei statischer Konfiguration sollten Adresse, Gateway und DNS im selben Subnetz liegen.</li>
+        <li>Nach Änderungen empfiehlt sich ein Neustart der Netzwerkverbindung oder des Systems.</li>
+        {% if current.dns %}<li>DNS laut System: {{ current.dns | join(', ') }}</li>{% endif %}
+      </ul>
+    </section>
   </article>
 </section>
 {% endblock %}
