@@ -15,7 +15,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +75,8 @@ class SystemManager:
         detected_repo = self._read_install_file(self.install_repo_file)
         if detected_repo:
             self.fallback_repo = detected_repo
+        self._last_cpu_times: Optional[Tuple[int, int]] = None
+        self._last_cpu_usage: Optional[float] = None
 
     # Git/Deployment --------------------------------------------------
     def current_branch(self) -> Optional[str]:
@@ -219,6 +221,7 @@ class SystemManager:
             "uptime_human": None,
             "cpu_count": os.cpu_count() or 1,
             "load_avg": None,
+            "cpu_usage_percent": None,
             "memory": {},
             "swap": {},
             "disk_usage": [],
@@ -244,6 +247,14 @@ class SystemManager:
             }
         except (OSError, AttributeError):
             overview["load_avg"] = None
+
+        cpu_usage = self._cpu_usage_percent()
+        if cpu_usage is None and overview["load_avg"]:
+            per_cpu_load = overview["load_avg"].get("per_cpu", {}).get("1")
+            if per_cpu_load is not None:
+                cpu_usage = max(0.0, min(per_cpu_load * 100.0, 100.0))
+        if cpu_usage is not None:
+            overview["cpu_usage_percent"] = cpu_usage
 
         meminfo = self._read_meminfo()
         mem_total = meminfo.get("MemTotal")
@@ -301,6 +312,51 @@ class SystemManager:
             )
 
         return overview
+
+    def _cpu_usage_percent(self) -> Optional[float]:
+        current = self._read_cpu_times()
+        if not current:
+            return None
+        last = self._last_cpu_times
+        self._last_cpu_times = current
+        if not last:
+            return self._last_cpu_usage
+        current_total, current_idle = current
+        last_total, last_idle = last
+        total_delta = current_total - last_total
+        idle_delta = current_idle - last_idle
+        if total_delta <= 0:
+            return self._last_cpu_usage
+        usage = 100.0 * (1.0 - (idle_delta / total_delta))
+        usage = max(0.0, min(usage, 100.0))
+        self._last_cpu_usage = usage
+        return usage
+
+    def _read_cpu_times(self) -> Optional[Tuple[int, int]]:
+        try:
+            with open("/proc/stat", "r", encoding="utf-8") as handle:
+                line = handle.readline()
+        except OSError:
+            return None
+        if not line:
+            return None
+        parts = line.split()
+        if not parts or parts[0] != "cpu":
+            return None
+        numeric_values: List[int] = []
+        for value in parts[1:]:
+            try:
+                numeric_values.append(int(value))
+            except ValueError:
+                try:
+                    numeric_values.append(int(float(value)))
+                except ValueError:
+                    return None
+        if not numeric_values:
+            return None
+        total = sum(numeric_values)
+        idle = numeric_values[3] if len(numeric_values) > 3 else 0
+        return total, idle
 
     def storage_devices(self) -> Dict[str, Any]:
         devices_info: Dict[str, Any] = {
@@ -535,7 +591,9 @@ class SystemManager:
         if error_message:
             info["message"] = error_message
             info["indicator"] = "info"
-            info["error"] = f"{device_path}: {error_message}"
+            lower_path = device_path.lower()
+            if "mmcblk" not in lower_path and "/mmc" not in lower_path:
+                info["error"] = f"{device_path}: {error_message}"
             return info
         if result is None:
             info["message"] = "smartctl lieferte kein Ergebnis"
@@ -640,6 +698,7 @@ class SystemManager:
         last_output = ""
         last_result: Optional[subprocess.CompletedProcess] = None
         detection_error = False
+        mmc_device = "mmcblk" in device_path.lower() or "/mmc" in device_path.lower()
         for device_type in candidates:
             if device_type in seen:
                 continue
@@ -673,7 +732,13 @@ class SystemManager:
                 continue
             return result, output, None
         if detection_error:
-            message = "Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Prüfung übersprungen."
+            if mmc_device:
+                message = (
+                    "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert spezielle Unterstützung "
+                    "für SD-/MMC-Karten."
+                )
+            else:
+                message = "Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Prüfung übersprungen."
         else:
             message = None
         return last_result, last_output, message

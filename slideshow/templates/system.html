@@ -1,8 +1,8 @@
 {% extends 'layout.html' %}
 {% block title %}System – Slideshow{% endblock %}
 {% block content %}
-<section class="grid system-grid">
-  <article class="system-tabs" data-tabs>
+<section class="system-layout">
+  <article class="system-sections" data-tabs>
     <div class="tab-controls" role="tablist">
       <button
         type="button"
@@ -19,12 +19,12 @@
         type="button"
         class="tab-control"
         role="tab"
-        id="tab-storage-overview"
-        aria-controls="panel-storage-overview"
+        id="tab-system-management"
+        aria-controls="panel-system-management"
         aria-selected="false"
-        data-tab-target="panel-storage-overview"
+        data-tab-target="panel-system-management"
       >
-        Speichergeräte
+        Systemverwaltung
       </button>
     </div>
     <div class="tab-panels">
@@ -35,16 +35,16 @@
         aria-labelledby="tab-system-overview"
         data-tab-panel="panel-system-overview"
       >
-        <div class="system-overview">
+        <article class="system-overview" data-system-overview>
           <h2>Systemübersicht</h2>
           <div class="system-summary-grid">
             <div class="system-card">
               <span class="system-card__title">Hostname</span>
-              <span class="system-card__value">{{ system_overview.hostname }}</span>
+              <span class="system-card__value" data-overview-field="hostname">{{ system_overview.hostname }}</span>
             </div>
             <div class="system-card">
               <span class="system-card__title">IP-Adressen</span>
-              <span class="system-card__value">
+              <span class="system-card__value" data-overview-field="ip-addresses">
                 {% if system_overview.ip_addresses %}
                   {% for address in system_overview.ip_addresses %}
                     <code>{{ address }}</code>{% if not loop.last %}<br />{% endif %}
@@ -56,114 +56,180 @@
             </div>
             <div class="system-card">
               <span class="system-card__title">Laufzeit</span>
-              <span class="system-card__value">{{ system_overview.uptime_human or '–' }}</span>
-              {% if system_overview.uptime_seconds %}
-              <span class="system-card__meta">{{ system_overview.uptime_seconds|int }} Sekunden</span>
-              {% endif %}
-            </div>
-            <div class="system-card">
-              <span class="system-card__title">CPU-Kerne</span>
-              <span class="system-card__value">{{ system_overview.cpu_count }}</span>
-            </div>
-          </div>
-          {% set load_avg = system_overview.load_avg %}
-          <div class="system-load">
-            <div class="system-card system-card--wide">
-              <span class="system-card__title">CPU-Last (1 / 5 / 15)</span>
-              <span class="system-card__value">
-                {% if load_avg %}
-                  {{ '%.2f' % load_avg['1'] }} / {{ '%.2f' % load_avg['5'] }} / {{ '%.2f' % load_avg['15'] }}
+              <span class="system-card__value" data-overview-field="uptime-human">{{ system_overview.uptime_human or '–' }}</span>
+              <span class="system-card__meta" data-overview-field="uptime-seconds">
+                {% if system_overview.uptime_seconds is not none %}
+                  {{ system_overview.uptime_seconds|int }} Sekunden
                 {% else %}
                   –
                 {% endif %}
               </span>
-              {% if load_avg and load_avg.get('per_cpu') %}
-              <span class="system-card__meta">
-                je Kern: {{ '%.2f' % load_avg['per_cpu']['1'] }} / {{ '%.2f' % load_avg['per_cpu']['5'] }} / {{ '%.2f' % load_avg['per_cpu']['15'] }}
-              </span>
-              {% endif %}
+            </div>
+            <div class="system-card">
+              <span class="system-card__title">CPU-Kerne</span>
+              <span class="system-card__value" data-overview-field="cpu-count">{{ system_overview.cpu_count }}</span>
             </div>
           </div>
           <div class="system-usage">
-            <div class="status-block">
-              <h3>Arbeitsspeicher</h3>
-              {% if system_overview.memory %}
-              <p>
-                <strong>{{ system_overview.memory.used|filesize }}</strong>
-                von {{ system_overview.memory.total|filesize }}
+            <div class="status-block status-block--cpu">
+              <h3>CPU-Auslastung</h3>
+              {% set cpu_percent = system_overview.cpu_usage_percent %}
+              <p class="status-block__value">
+                <strong data-overview-field="cpu-usage-text">
+                  {% if cpu_percent is not none %}
+                    {{ cpu_percent|percent }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </strong>
               </p>
-              {% set mem_percent = system_overview.memory.percent or 0 %}
               <div class="usage-bar" aria-hidden="true">
-                <div class="usage-bar__fill" style="width: {{ [mem_percent, 100]|min|round(1) }}%;"></div>
+                <div
+                  class="usage-bar__fill"
+                  data-overview-field="cpu-usage-bar"
+                  style="width: {{ [cpu_percent or 0, 100]|min|round(1) }}%;"
+                ></div>
               </div>
-              <p class="usage-bar__label">{{ system_overview.memory.percent|percent or '–' }} belegt</p>
-              {% else %}
-              <p class="muted">Keine Informationen verfügbar.</p>
-              {% endif %}
+              {% set load_avg = system_overview.load_avg %}
+              <p class="usage-bar__label" data-overview-field="cpu-load-avg">
+                {% if load_avg %}
+                  Last 1/5/15: {{ '%.2f' % load_avg['1'] }} / {{ '%.2f' % load_avg['5'] }} / {{ '%.2f' % load_avg['15'] }}
+                {% else %}
+                  Keine Lastinformationen verfügbar.
+                {% endif %}
+              </p>
+              <p class="usage-bar__meta" data-overview-field="cpu-load-per-core">
+                {% if load_avg and load_avg.get('per_cpu') %}
+                  je Kern: {{ '%.2f' % load_avg['per_cpu']['1'] }} / {{ '%.2f' % load_avg['per_cpu']['5'] }} / {{ '%.2f' % load_avg['per_cpu']['15'] }}
+                {% else %}
+                  &nbsp;
+                {% endif %}
+              </p>
             </div>
-            {% if system_overview.swap %}
-            <div class="status-block">
+            {% set memory = system_overview.memory or {} %}
+            {% set mem_used = memory.get('used') %}
+            {% set mem_total = memory.get('total') %}
+            {% set mem_percent = memory.get('percent') %}
+            <div class="status-block status-block--memory">
+              <h3>Arbeitsspeicher</h3>
+              <p>
+                <strong data-overview-field="memory-used">
+                  {% if mem_used is not none %}
+                    {{ mem_used|filesize }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </strong>
+                von
+                <span data-overview-field="memory-total">
+                  {% if mem_total is not none %}
+                    {{ mem_total|filesize }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </span>
+              </p>
+              <div class="usage-bar" aria-hidden="true">
+                <div
+                  class="usage-bar__fill"
+                  data-overview-field="memory-bar"
+                  style="width: {{ [mem_percent or 0, 100]|min|round(1) }}%;"
+                ></div>
+              </div>
+              <p class="usage-bar__label" data-overview-field="memory-percent-text">
+                {% if mem_percent is not none %}
+                  {{ mem_percent|percent }} belegt
+                {% else %}
+                  Keine Informationen verfügbar.
+                {% endif %}
+              </p>
+            </div>
+            {% set swap = system_overview.swap or {} %}
+            {% set swap_used = swap.get('used') %}
+            {% set swap_total = swap.get('total') %}
+            {% set swap_percent = swap.get('percent') %}
+            <div class="status-block status-block--swap" data-overview-field="swap-block" {% if swap_total is none %}hidden{% endif %}>
               <h3>Swap</h3>
               <p>
-                <strong>{{ system_overview.swap.used|filesize }}</strong>
-                von {{ system_overview.swap.total|filesize }}
+                <strong data-overview-field="swap-used">
+                  {% if swap_used is not none %}
+                    {{ swap_used|filesize }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </strong>
+                von
+                <span data-overview-field="swap-total">
+                  {% if swap_total is not none %}
+                    {{ swap_total|filesize }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </span>
               </p>
-              {% set swap_percent = system_overview.swap.percent or 0 %}
               <div class="usage-bar" aria-hidden="true">
-                <div class="usage-bar__fill" style="width: {{ [swap_percent, 100]|min|round(1) }}%;"></div>
+                <div
+                  class="usage-bar__fill"
+                  data-overview-field="swap-bar"
+                  style="width: {{ [swap_percent or 0, 100]|min|round(1) }}%;"
+                ></div>
               </div>
-              <p class="usage-bar__label">{{ system_overview.swap.percent|percent or '–' }} belegt</p>
+              <p class="usage-bar__label" data-overview-field="swap-percent-text">
+                {% if swap_percent is not none %}
+                  {{ swap_percent|percent }} belegt
+                {% else %}
+                  Keine Informationen verfügbar.
+                {% endif %}
+              </p>
             </div>
-            {% endif %}
+            <p class="muted" data-overview-field="swap-empty" {% if swap_total is not none %}hidden{% endif %}>
+              Keine Swap-Partition konfiguriert.
+            </p>
           </div>
-          {% if system_overview.disk_usage %}
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Speicher</th>
-                  <th>Belegt</th>
-                  <th>Frei</th>
-                  <th>Auslastung</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for disk in system_overview.disk_usage %}
-                <tr>
-                  <td>
-                    <strong>{{ disk.label }}</strong><br />
-                    <span class="muted">{{ disk.path }}</span>
-                  </td>
-                  <td>{{ disk.used|filesize }}</td>
-                  <td>{{ disk.free|filesize }}</td>
-                  <td>
-                    {% if disk.percent is not none %}
-                    {% set disk_percent = disk.percent %}
-                    <div class="usage-bar" aria-hidden="true">
-                      <div class="usage-bar__fill" style="width: {{ [disk_percent, 100]|min|round(1) }}%;"></div>
-                    </div>
-                    <span class="usage-bar__label">{{ disk.percent|percent }}</span>
-                    {% else %}
-                    <span class="muted">–</span>
-                    {% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+          <div class="system-disks">
+            <h3>Datenträgerauslastung</h3>
+            <div class="table-wrapper" data-overview-field="disk-table-wrapper" {% if not system_overview.disk_usage %}hidden{% endif %}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Speicher</th>
+                    <th>Belegt</th>
+                    <th>Frei</th>
+                    <th>Auslastung</th>
+                  </tr>
+                </thead>
+                <tbody data-overview-field="disk-table">
+                  {% for disk in system_overview.disk_usage %}
+                  {% set disk_percent = disk.percent %}
+                  <tr>
+                    <td>
+                      <strong>{{ disk.label }}</strong><br />
+                      <span class="muted">{{ disk.path }}</span>
+                    </td>
+                    <td>{{ disk.used|filesize }}</td>
+                    <td>{{ disk.free|filesize }}</td>
+                    <td>
+                      {% if disk_percent is not none %}
+                      <div class="usage-bar" aria-hidden="true">
+                        <div class="usage-bar__fill" style="width: {{ [disk_percent, 100]|min|round(1) }}%;"></div>
+                      </div>
+                      <span class="usage-bar__label">{{ disk_percent|percent }}</span>
+                      {% else %}
+                      <span class="muted">–</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" data-overview-field="disk-empty" {% if system_overview.disk_usage %}hidden{% endif %}>
+              Keine Datenträgerinformationen verfügbar.
+            </p>
           </div>
-          {% endif %}
-        </div>
-      </section>
-      <section
-        id="panel-storage-overview"
-        class="tab-panel"
-        role="tabpanel"
-        aria-labelledby="tab-storage-overview"
-        data-tab-panel="panel-storage-overview"
-      >
-        <div class="storage-overview">
-          <h2>Speichergeräte</h2>
+        </article>
+        <article class="storage-overview">
+          <h2>Festplatten &amp; Geräte</h2>
           {% if not storage_info.smartctl_available %}
           <p class="muted storage-warning">SMART-Informationen stehen nicht zur Verfügung. Stelle sicher, dass die smartmontools installiert sind.</p>
           {% endif %}
@@ -251,134 +317,144 @@
               Noch keine Ausführung
             {% endif %} – Ergebnisse im Log <code>diagnostics.log</code> einsehbar.
           </p>
+        </article>
+        <article class="logs">
+          <h2>Protokolle</h2>
+          <div class="log-controls">
+            <label>Log auswählen
+              <select id="log-select">
+                {% for key, info in log_sources.items() %}
+                <option value="{{ key }}">{{ info.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Zeilen
+              <input type="number" id="log-lines" value="200" min="10" max="2000" />
+            </label>
+            <button type="button" id="log-refresh">Aktualisieren</button>
+            <a id="log-download" class="button-link" href="#" download>Herunterladen</a>
+            <form method="post" action="{{ url_for('delete_log', name='__LOG__') }}" id="log-delete-form" class="inline-form">
+              <button type="submit" id="log-delete-button" class="danger" disabled>Log löschen</button>
+            </form>
+          </div>
+          <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
+        </article>
+      </section>
+      <section
+        id="panel-system-management"
+        class="tab-panel"
+        role="tabpanel"
+        aria-labelledby="tab-system-management"
+        data-tab-panel="panel-system-management"
+        hidden
+      >
+        <div class="system-management">
+          <article>
+            <h2>Updates</h2>
+            {% if has_branch_info %}
+            <form method="post" action="{{ url_for('system_update') }}" class="grid-form">
+              <label>Branch auswählen
+                <select name="branch">
+                  {% for branch in branch_choices %}
+                  <option value="{{ branch }}" {% if current_branch and branch == current_branch %}selected{% endif %}>{{ branch }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit">Update starten</button>
+            </form>
+            <p class="muted">Aktueller Branch: <strong>{{ current_branch or 'unbekannt' }}</strong></p>
+            <p class="muted">Der Ablauf wird in <code>update.log</code> protokolliert und kann unten im Bereich „Protokolle“ eingesehen werden.</p>
+            {% else %}
+            <p class="muted">Git-Updates stehen in dieser Installation nicht zur Verfügung. Stelle sicher, dass das Repository über Git installiert wurde{% if fallback_repo %} oder prüfe die veröffentlichten Versionen unter <a href="https://github.com/{{ fallback_repo }}/branches" target="_blank" rel="noopener">GitHub</a>{% endif %}.</p>
+            {% endif %}
+          </article>
+          <article>
+            <h2>Service &amp; Aktionen</h2>
+            <div class="status-flags">
+              <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
+                {% if service_active %}Slideshow läuft{% else %}Slideshow ist gestoppt{% endif %}
+              </span>
+              <span class="muted">Status der Wiedergabe: {{ service_status or 'unbekannt' }}</span>
+            </div>
+            <p class="muted">Die folgenden Aktionen betreffen ausschließlich die Slideshow. Das Webinterface bleibt erreichbar.</p>
+            <div class="button-row">
+              <form method="post" action="{{ url_for('system_service', action='restart') }}">
+                <button type="submit">Slideshow neu starten</button>
+              </form>
+              <form method="post" action="{{ url_for('system_service', action='start') }}">
+                <button type="submit">Slideshow starten</button>
+              </form>
+              <form method="post" action="{{ url_for('system_service', action='stop') }}">
+                <button type="submit">Slideshow stoppen</button>
+              </form>
+            </div>
+            <div class="button-row">
+              <form method="post" action="{{ url_for('system_reboot') }}" onsubmit="return confirm('Raspberry Pi wirklich neu starten?');">
+                <button type="submit">Raspberry Pi neu starten</button>
+              </form>
+              <form method="post" action="{{ url_for('system_shutdown') }}" onsubmit="return confirm('Raspberry Pi herunterfahren?');">
+                <button type="submit" class="danger">Herunterfahren</button>
+              </form>
+            </div>
+            <form method="post" action="{{ url_for('update_log_level') }}" class="inline-form">
+              <label>Log-Level
+                <select name="log_level">
+                  {% for level in log_level_choices %}
+                  <option value="{{ level }}" {% if current_log_level == level %}selected{% endif %}>{{ level }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit">Log-Level speichern</button>
+            </form>
+          </article>
+          <article class="planned-restarts">
+            <h2>Geplante Neustarts</h2>
+            <form method="post" action="{{ url_for('update_restart_schedule') }}" class="inline-form">
+              <label>Zeitpunkte
+                <input type="text" name="restart_times" value="{{ scheduled_restart_text }}" placeholder="z. B. 03:00, 14:00" />
+              </label>
+              <button type="submit">Zeitplan speichern</button>
+              <p class="muted form-help">Mehrere Zeiten durch Komma oder Zeilenumbruch trennen. Leer lassen, um geplante Neustarts zu deaktivieren.</p>
+            </form>
+            <div class="scheduled-restarts">
+              <p class="muted">Aktuell geplante Neustarts des Raspberry Pi:</p>
+              {% if scheduled_restart_list %}
+              <ul class="restart-list">
+                {% for time in scheduled_restart_list %}
+                <li><code>{{ time }}</code></li>
+                {% endfor %}
+              </ul>
+              {% else %}
+              <p class="muted">Keine Neustarts geplant.</p>
+              {% endif %}
+            </div>
+          </article>
+          <article>
+            <h2>Konfiguration</h2>
+            <div class="button-row">
+              <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>
+            </div>
+            <form method="post" action="{{ url_for('import_config') }}" enctype="multipart/form-data" class="inline-form">
+              <label>Datei auswählen
+                <input type="file" name="config_file" accept=".zip,.yml,.yaml,.json" required />
+              </label>
+              <button type="submit">Konfiguration importieren</button>
+              <p class="muted">Unterstützt werden exportierte ZIP-Archive oder eine einzelne <code>config.yml</code>.</p>
+            </form>
+            <form method="post" action="{{ url_for('update_theme') }}" class="inline-form theme-form">
+              <label>Theme auswählen
+                <select name="theme">
+                  {% for value, label in theme_choices %}
+                  <option value="{{ value }}" {% if config.ui.theme == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button type="submit">Theme übernehmen</button>
+            </form>
+          </article>
         </div>
       </section>
     </div>
-  </article>
-
-  <article>
-    <h2>Updates</h2>
-    {% if has_branch_info %}
-    <form method="post" action="{{ url_for('system_update') }}" class="grid-form">
-      <label>Branch auswählen
-        <select name="branch">
-          {% for branch in branch_choices %}
-          <option value="{{ branch }}" {% if current_branch and branch == current_branch %}selected{% endif %}>{{ branch }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Update starten</button>
-    </form>
-    <p class="muted">Aktueller Branch: <strong>{{ current_branch or 'unbekannt' }}</strong></p>
-    <p class="muted">Der Ablauf wird in <code>update.log</code> protokolliert und kann unten im Bereich „Protokolle“ eingesehen werden.</p>
-    {% else %}
-    <p class="muted">Git-Updates stehen in dieser Installation nicht zur Verfügung. Stelle sicher, dass das Repository über Git installiert wurde{% if fallback_repo %} oder prüfe die veröffentlichten Versionen unter <a href="https://github.com/{{ fallback_repo }}/branches" target="_blank" rel="noopener">GitHub</a>{% endif %}.</p>
-    {% endif %}
-  </article>
-
-  <article>
-    <h2>Service &amp; Aktionen</h2>
-    <div class="status-flags">
-      <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
-        {% if service_active %}Slideshow läuft{% else %}Slideshow ist gestoppt{% endif %}
-      </span>
-      <span class="muted">Status der Wiedergabe: {{ service_status or 'unbekannt' }}</span>
-    </div>
-    <p class="muted">Die folgenden Aktionen betreffen ausschließlich die Slideshow. Das Webinterface bleibt erreichbar.</p>
-    <div class="button-row">
-      <form method="post" action="{{ url_for('system_service', action='restart') }}">
-        <button type="submit">Slideshow neu starten</button>
-      </form>
-      <form method="post" action="{{ url_for('system_service', action='start') }}">
-        <button type="submit">Slideshow starten</button>
-      </form>
-      <form method="post" action="{{ url_for('system_service', action='stop') }}">
-        <button type="submit">Slideshow stoppen</button>
-      </form>
-    </div>
-    <div class="button-row">
-      <form method="post" action="{{ url_for('system_reboot') }}" onsubmit="return confirm('Raspberry Pi wirklich neu starten?');">
-        <button type="submit">Raspberry Pi neu starten</button>
-      </form>
-      <form method="post" action="{{ url_for('system_shutdown') }}" onsubmit="return confirm('Raspberry Pi herunterfahren?');">
-        <button type="submit" class="danger">Herunterfahren</button>
-      </form>
-    </div>
-    <form method="post" action="{{ url_for('update_log_level') }}" class="inline-form">
-      <label>Log-Level
-        <select name="log_level">
-          {% for level in log_level_choices %}
-          <option value="{{ level }}" {% if current_log_level == level %}selected{% endif %}>{{ level }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Log-Level speichern</button>
-    </form>
-    <form method="post" action="{{ url_for('update_restart_schedule') }}" class="inline-form">
-      <label>Geplante Neustarts
-        <input type="text" name="restart_times" value="{{ scheduled_restart_text }}" placeholder="z. B. 03:00, 14:00" />
-      </label>
-      <button type="submit">Zeitplan speichern</button>
-      <p class="muted form-help">Mehrere Zeiten durch Komma oder Zeilenumbruch trennen. Leer lassen, um geplante Neustarts zu deaktivieren.</p>
-    </form>
-    <div class="scheduled-restarts">
-      <p class="muted">Aktuell geplante Neustarts des Raspberry Pi:</p>
-      {% if scheduled_restart_list %}
-      <ul class="restart-list">
-        {% for time in scheduled_restart_list %}
-        <li><code>{{ time }}</code></li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="muted">Keine Neustarts geplant.</p>
-      {% endif %}
-    </div>
-  </article>
-
-  <article>
-    <h2>Konfiguration</h2>
-    <div class="button-row">
-      <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>
-    </div>
-    <form method="post" action="{{ url_for('import_config') }}" enctype="multipart/form-data" class="inline-form">
-      <label>Datei auswählen
-        <input type="file" name="config_file" accept=".zip,.yml,.yaml,.json" required />
-      </label>
-      <button type="submit">Konfiguration importieren</button>
-      <p class="muted">Unterstützt werden exportierte ZIP-Archive oder eine einzelne <code>config.yml</code>.</p>
-    </form>
-    <form method="post" action="{{ url_for('update_theme') }}" class="inline-form theme-form">
-      <label>Theme auswählen
-        <select name="theme">
-          {% for value, label in theme_choices %}
-          <option value="{{ value }}" {% if config.ui.theme == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Theme übernehmen</button>
-    </form>
-  </article>
-
-  <article class="logs">
-    <h2>Protokolle</h2>
-    <div class="log-controls">
-      <label>Log auswählen
-        <select id="log-select">
-          {% for key, info in log_sources.items() %}
-          <option value="{{ key }}">{{ info.label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Zeilen
-        <input type="number" id="log-lines" value="200" min="10" max="2000" />
-      </label>
-      <button type="button" id="log-refresh">Aktualisieren</button>
-      <a id="log-download" class="button-link" href="#" download>Herunterladen</a>
-      <form method="post" action="{{ url_for('delete_log', name='__LOG__') }}" id="log-delete-form" class="inline-form">
-        <button type="submit" id="log-delete-button" class="danger" disabled>Log löschen</button>
-      </form>
-    </div>
-    <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
   </article>
 </section>
 {% endblock %}
@@ -418,8 +494,7 @@
         });
       });
 
-      const initial = buttons.find((button) => button.classList.contains('is-active'))
-        || buttons[0];
+      const initial = buttons.find((button) => button.classList.contains('is-active')) || buttons[0];
       if (initial && initial.dataset.tabTarget) {
         activate(initial.dataset.tabTarget);
       }
@@ -516,6 +591,281 @@
       loadLog();
     } else {
       updateLogActions();
+    }
+
+    const overviewContainer = document.querySelector('[data-system-overview]');
+    const overviewEndpoint = "{{ url_for('system_overview_data') }}";
+    if (overviewContainer && overviewEndpoint) {
+      const numberFormatter = new Intl.NumberFormat('de-DE');
+      const REFRESH_INTERVAL = 15000;
+      const fields = {
+        hostname: overviewContainer.querySelector('[data-overview-field="hostname"]'),
+        ipAddresses: overviewContainer.querySelector('[data-overview-field="ip-addresses"]'),
+        uptimeHuman: overviewContainer.querySelector('[data-overview-field="uptime-human"]'),
+        uptimeSeconds: overviewContainer.querySelector('[data-overview-field="uptime-seconds"]'),
+        cpuCount: overviewContainer.querySelector('[data-overview-field="cpu-count"]'),
+        cpuUsageText: overviewContainer.querySelector('[data-overview-field="cpu-usage-text"]'),
+        cpuUsageBar: overviewContainer.querySelector('[data-overview-field="cpu-usage-bar"]'),
+        cpuLoadAvg: overviewContainer.querySelector('[data-overview-field="cpu-load-avg"]'),
+        cpuLoadPerCore: overviewContainer.querySelector('[data-overview-field="cpu-load-per-core"]'),
+        memoryUsed: overviewContainer.querySelector('[data-overview-field="memory-used"]'),
+        memoryTotal: overviewContainer.querySelector('[data-overview-field="memory-total"]'),
+        memoryBar: overviewContainer.querySelector('[data-overview-field="memory-bar"]'),
+        memoryPercentText: overviewContainer.querySelector('[data-overview-field="memory-percent-text"]'),
+        swapBlock: overviewContainer.querySelector('[data-overview-field="swap-block"]'),
+        swapUsed: overviewContainer.querySelector('[data-overview-field="swap-used"]'),
+        swapTotal: overviewContainer.querySelector('[data-overview-field="swap-total"]'),
+        swapBar: overviewContainer.querySelector('[data-overview-field="swap-bar"]'),
+        swapPercentText: overviewContainer.querySelector('[data-overview-field="swap-percent-text"]'),
+        swapEmpty: overviewContainer.querySelector('[data-overview-field="swap-empty"]'),
+        diskTableWrapper: overviewContainer.querySelector('[data-overview-field="disk-table-wrapper"]'),
+        diskTable: overviewContainer.querySelector('[data-overview-field="disk-table"]'),
+        diskEmpty: overviewContainer.querySelector('[data-overview-field="disk-empty"]'),
+      };
+
+      function formatBytes(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+          return '–';
+        }
+        const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+        let size = value;
+        let index = 0;
+        while (size >= 1024 && index < units.length - 1) {
+          size /= 1024;
+          index += 1;
+        }
+        if (index === 0) {
+          return `${Math.round(size)} B`;
+        }
+        return `${size.toFixed(1)} ${units[index]}`;
+      }
+
+      function formatPercent(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+          return '–';
+        }
+        return `${value.toFixed(1)}%`;
+      }
+
+      function clampPercent(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+          return 0;
+        }
+        return Math.max(0, Math.min(100, value));
+      }
+
+      function setText(element, text) {
+        if (!element) {
+          return;
+        }
+        element.textContent = text;
+      }
+
+      function renderIpAddresses(element, addresses) {
+        if (!element) {
+          return;
+        }
+        element.innerHTML = '';
+        if (!Array.isArray(addresses) || !addresses.length) {
+          const span = document.createElement('span');
+          span.className = 'muted';
+          span.textContent = '–';
+          element.appendChild(span);
+          return;
+        }
+        addresses.forEach((address, index) => {
+          const code = document.createElement('code');
+          code.textContent = address;
+          element.appendChild(code);
+          if (index < addresses.length - 1) {
+            element.appendChild(document.createElement('br'));
+          }
+        });
+      }
+
+      function updateUsageBar(element, percent) {
+        if (!element) {
+          return;
+        }
+        const value = clampPercent(percent);
+        element.style.width = `${value.toFixed(1)}%`;
+      }
+
+      function renderDiskTable(disks) {
+        if (!fields.diskTable) {
+          return;
+        }
+        fields.diskTable.innerHTML = '';
+        if (!Array.isArray(disks)) {
+          return;
+        }
+        disks.forEach((disk) => {
+          const row = document.createElement('tr');
+
+          const nameCell = document.createElement('td');
+          const strong = document.createElement('strong');
+          strong.textContent = disk.label || '–';
+          nameCell.appendChild(strong);
+          nameCell.appendChild(document.createElement('br'));
+          const pathSpan = document.createElement('span');
+          pathSpan.className = 'muted';
+          pathSpan.textContent = disk.path || '';
+          nameCell.appendChild(pathSpan);
+          row.appendChild(nameCell);
+
+          const usedCell = document.createElement('td');
+          usedCell.textContent = formatBytes(disk.used);
+          row.appendChild(usedCell);
+
+          const freeCell = document.createElement('td');
+          freeCell.textContent = formatBytes(disk.free);
+          row.appendChild(freeCell);
+
+          const percentCell = document.createElement('td');
+          const percent = typeof disk.percent === 'number' ? disk.percent : null;
+          if (percent !== null && isFinite(percent)) {
+            const bar = document.createElement('div');
+            bar.className = 'usage-bar';
+            bar.setAttribute('aria-hidden', 'true');
+            const fill = document.createElement('div');
+            fill.className = 'usage-bar__fill';
+            fill.style.width = `${clampPercent(percent).toFixed(1)}%`;
+            bar.appendChild(fill);
+            percentCell.appendChild(bar);
+            const label = document.createElement('span');
+            label.className = 'usage-bar__label';
+            label.textContent = formatPercent(percent);
+            percentCell.appendChild(label);
+          } else {
+            const dash = document.createElement('span');
+            dash.className = 'muted';
+            dash.textContent = '–';
+            percentCell.appendChild(dash);
+          }
+          row.appendChild(percentCell);
+
+          fields.diskTable.appendChild(row);
+        });
+      }
+
+      function updateOverview(data) {
+        setText(fields.hostname, data.hostname || '–');
+        renderIpAddresses(fields.ipAddresses, data.ip_addresses);
+        setText(fields.uptimeHuman, data.uptime_human || '–');
+        if (fields.uptimeSeconds) {
+          if (typeof data.uptime_seconds === 'number' && isFinite(data.uptime_seconds)) {
+            setText(fields.uptimeSeconds, `${numberFormatter.format(Math.round(data.uptime_seconds))}\u202fSekunden`);
+          } else {
+            setText(fields.uptimeSeconds, '–');
+          }
+        }
+        if (fields.cpuCount) {
+          const count = typeof data.cpu_count === 'number' && isFinite(data.cpu_count) ? data.cpu_count : null;
+          setText(fields.cpuCount, count !== null ? String(count) : '–');
+        }
+        const cpuPercent = typeof data.cpu_usage_percent === 'number' && isFinite(data.cpu_usage_percent)
+          ? data.cpu_usage_percent
+          : null;
+        setText(fields.cpuUsageText, cpuPercent !== null ? formatPercent(cpuPercent) : '–');
+        updateUsageBar(fields.cpuUsageBar, cpuPercent !== null ? cpuPercent : 0);
+        if (fields.cpuLoadAvg) {
+          const load = data.load_avg;
+          if (load && typeof load['1'] === 'number' && typeof load['5'] === 'number' && typeof load['15'] === 'number') {
+            setText(
+              fields.cpuLoadAvg,
+              `Last 1/5/15: ${load['1'].toFixed(2)} / ${load['5'].toFixed(2)} / ${load['15'].toFixed(2)}`,
+            );
+          } else {
+            setText(fields.cpuLoadAvg, 'Keine Lastinformationen verfügbar.');
+          }
+          if (fields.cpuLoadPerCore) {
+            if (
+              load &&
+              load.per_cpu &&
+              typeof load.per_cpu['1'] === 'number' &&
+              typeof load.per_cpu['5'] === 'number' &&
+              typeof load.per_cpu['15'] === 'number'
+            ) {
+              setText(
+                fields.cpuLoadPerCore,
+                `je Kern: ${load.per_cpu['1'].toFixed(2)} / ${load.per_cpu['5'].toFixed(2)} / ${load.per_cpu['15'].toFixed(2)}`,
+              );
+              fields.cpuLoadPerCore.style.display = '';
+            } else {
+              setText(fields.cpuLoadPerCore, '');
+              fields.cpuLoadPerCore.style.display = 'none';
+            }
+          }
+        }
+        const memory = data.memory || {};
+        setText(fields.memoryUsed, formatBytes(memory.used));
+        setText(fields.memoryTotal, formatBytes(memory.total));
+        updateUsageBar(fields.memoryBar, memory.percent);
+        if (fields.memoryPercentText) {
+          if (typeof memory.percent === 'number' && isFinite(memory.percent)) {
+            setText(fields.memoryPercentText, `${formatPercent(memory.percent)} belegt`);
+          } else {
+            setText(fields.memoryPercentText, 'Keine Informationen verfügbar.');
+          }
+        }
+
+        const swap = data.swap || {};
+        const hasSwap = typeof swap.total === 'number' && isFinite(swap.total) && swap.total > 0;
+        if (fields.swapBlock) {
+          fields.swapBlock.hidden = !hasSwap;
+        }
+        if (fields.swapEmpty) {
+          fields.swapEmpty.hidden = hasSwap;
+        }
+        if (hasSwap) {
+          setText(fields.swapUsed, formatBytes(swap.used));
+          setText(fields.swapTotal, formatBytes(swap.total));
+          updateUsageBar(fields.swapBar, swap.percent);
+          if (fields.swapPercentText) {
+            if (typeof swap.percent === 'number' && isFinite(swap.percent)) {
+              setText(fields.swapPercentText, `${formatPercent(swap.percent)} belegt`);
+            } else {
+              setText(fields.swapPercentText, 'Keine Informationen verfügbar.');
+            }
+          }
+        }
+
+        if (Array.isArray(data.disk_usage) && data.disk_usage.length) {
+          if (fields.diskTableWrapper) {
+            fields.diskTableWrapper.hidden = false;
+          }
+          if (fields.diskEmpty) {
+            fields.diskEmpty.hidden = true;
+          }
+          renderDiskTable(data.disk_usage);
+        } else {
+          if (fields.diskTableWrapper) {
+            fields.diskTableWrapper.hidden = true;
+          }
+          if (fields.diskEmpty) {
+            fields.diskEmpty.hidden = false;
+          }
+          if (fields.diskTable) {
+            fields.diskTable.innerHTML = '';
+          }
+        }
+      }
+
+      async function refreshOverview() {
+        try {
+          const response = await fetch(overviewEndpoint, { headers: { Accept: 'application/json' } });
+          if (!response.ok) {
+            return;
+          }
+          const data = await response.json();
+          updateOverview(data);
+        } catch (error) {
+          // Ignorieren – kurzfristige Aussetzer werden beim nächsten Poll behoben.
+        }
+      }
+
+      refreshOverview();
+      window.setInterval(refreshOverview, REFRESH_INTERVAL);
     }
   });
 </script>

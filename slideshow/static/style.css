@@ -176,10 +176,28 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
 }
 
-.system-tabs {
+.system-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.system-sections {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
+}
+
+.system-management {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.system-management article {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
 }
 
 .tab-controls {
@@ -272,15 +290,17 @@ a {
   color: var(--muted);
 }
 
-.system-load {
-  margin-bottom: 1rem;
-}
-
 .system-overview .system-usage {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-bottom: 1rem;
+}
+
+.status-block__value {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
 }
 
 .usage-bar {
@@ -305,6 +325,10 @@ a {
   display: block;
   margin-top: 0.45rem;
   font-size: 0.9rem;
+}
+
+.system-disks h3 {
+  margin-top: 0.5rem;
 }
 
 .storage-warning {
@@ -359,6 +383,13 @@ article h2 {
   margin-top: 0;
 }
 
+.system-management .button-row,
+.system-management form,
+.system-management .scheduled-restarts,
+.system-management p {
+  margin-bottom: 0;
+}
+
 .status-block {
   background: var(--surface-strong);
   border-radius: 0.75rem;
@@ -374,6 +405,26 @@ article h2 {
 .status-block p strong {
   display: inline-block;
   min-width: 6rem;
+}
+
+.planned-restarts .scheduled-restarts {
+  margin-top: 0.75rem;
+}
+
+.restart-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+  margin: 0.5rem 0 0;
+}
+
+.restart-list li code {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--surface-alt);
 }
 
 .status-preview {
