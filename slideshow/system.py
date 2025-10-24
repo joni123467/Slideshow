@@ -424,66 +424,79 @@ class SystemManager:
         if normalized_test not in allowed_tests:
             raise ValueError("Unbekannter SMART-Test")
 
-        candidates: List[Optional[str]] = [None]
-        candidates.extend(self._smartctl_candidate_types(device_path))
-        candidates.append("auto")
-        seen: Set[Optional[str]] = set()
+        candidate_types: List[Optional[str]] = [None]
+        candidate_types.extend(self._smartctl_candidate_types(device_path))
+        candidate_types.append("auto")
+        tolerance_levels: List[Optional[str]] = [None]
+        tolerance_levels.extend(self._smartctl_tolerance_candidates(device_path))
+        seen: Set[Tuple[Optional[str], Optional[str]]] = set()
         detection_error = False
+        tolerance_error = False
         last_error: Optional[str] = None
 
-        for device_type in candidates:
-            if device_type in seen:
-                continue
-            seen.add(device_type)
-            command = ["smartctl"]
-            if device_type:
-                command.extend(["-d", device_type])
-            command.extend(["-t", normalized_test, device_path])
-            try:
-                result = self._run(command, use_sudo=True, check=False, capture=True)
-            except Exception as exc:  # pragma: no cover - defensive
-                LOGGER.exception("SMART-Test für %s konnte nicht gestartet werden: %s", device_path, exc)
-                raise RuntimeError("SMART-Test konnte nicht gestartet werden") from exc
-            if not isinstance(result, subprocess.CompletedProcess):
-                raise RuntimeError("smartctl konnte nicht ausgeführt werden")
-            output_parts: List[str] = []
-            if result.stdout:
-                output_parts.append(result.stdout.strip())
-            if result.stderr:
-                output_parts.append(result.stderr.strip())
-            output = "\n".join(part for part in output_parts if part).strip()
-            if result.returncode in (0, 2):
-                self._log_smart_test(device_path, command, output)
-                label = {
-                    "short": "Kurztest",
-                    "long": "Langtest",
-                    "conveyance": "Transporttest",
-                }.get(normalized_test, normalized_test)
-                message = f"SMART-{label} für {device_path} gestartet."
-                info_line = ""
-                for line in output.splitlines():
-                    stripped = line.strip()
-                    if stripped and not stripped.lower().startswith("smartctl"):
-                        info_line = stripped
-                if info_line:
-                    message = f"{message} {info_line}"
-                return message
-            lower_output = output.lower()
-            if "unknown device type" in lower_output or self._smartctl_requires_device_type(output):
-                detection_error = True
-                continue
-            if lower_output:
-                last_error = output
-            else:
-                last_error = f"smartctl Status {result.returncode}"
+        for device_type in candidate_types:
+            for tolerance in tolerance_levels:
+                key = (device_type, tolerance)
+                if key in seen:
+                    continue
+                seen.add(key)
+                command = ["smartctl"]
+                if tolerance:
+                    command.extend(["-T", tolerance])
+                if device_type:
+                    command.extend(["-d", device_type])
+                command.extend(["-t", normalized_test, device_path])
+                try:
+                    result = self._run(command, use_sudo=True, check=False, capture=True)
+                except Exception as exc:  # pragma: no cover - defensive
+                    LOGGER.exception("SMART-Test für %s konnte nicht gestartet werden: %s", device_path, exc)
+                    raise RuntimeError("SMART-Test konnte nicht gestartet werden") from exc
+                if not isinstance(result, subprocess.CompletedProcess):
+                    raise RuntimeError("smartctl konnte nicht ausgeführt werden")
+                output_parts: List[str] = []
+                if result.stdout:
+                    output_parts.append(result.stdout.strip())
+                if result.stderr:
+                    output_parts.append(result.stderr.strip())
+                output = "\n".join(part for part in output_parts if part).strip()
+                if result.returncode in (0, 2):
+                    self._log_smart_test(device_path, command, output)
+                    label = {
+                        "short": "Kurztest",
+                        "long": "Langtest",
+                        "conveyance": "Transporttest",
+                    }.get(normalized_test, normalized_test)
+                    message = f"SMART-{label} für {device_path} gestartet."
+                    info_line = ""
+                    for line in output.splitlines():
+                        stripped = line.strip()
+                        if stripped and not stripped.lower().startswith("smartctl"):
+                            info_line = stripped
+                    if info_line:
+                        message = f"{message} {info_line}"
+                    return message
+                lower_output = output.lower()
+                if "unknown device type" in lower_output or self._smartctl_requires_device_type(output):
+                    detection_error = True
+                    continue
+                if self._smartctl_requires_tolerance(output) and not tolerance:
+                    tolerance_error = True
+                    continue
+                if lower_output:
+                    last_error = output
+                else:
+                    last_error = f"smartctl Status {result.returncode}"
 
         device_lower = device_path.lower()
-        if detection_error and ("mmcblk" in device_lower or "/mmc" in device_lower):
+        mmc_device = "mmcblk" in device_lower or "/mmc" in device_lower
+        if (detection_error or tolerance_error) and mmc_device:
             raise RuntimeError(
-                "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert spezielle Unterstützung für SD-/MMC-Karten."
+                "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert die smartctl-Option '-T permissive'."
             )
-        if detection_error:
-            raise RuntimeError("Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Test abgebrochen.")
+        if detection_error or tolerance_error:
+            raise RuntimeError(
+                "Gerätetyp oder erforderliche smartctl-Toleranz konnte nicht automatisch ermittelt werden. SMART-Test abgebrochen."
+            )
         raise RuntimeError(last_error or "SMART-Test konnte nicht gestartet werden")
 
     def run_diagnostics(self, mode: str = "check") -> subprocess.Popen:
@@ -765,57 +778,68 @@ class SystemManager:
     def _invoke_smartctl(
         self, device_path: str
     ) -> Tuple[Optional[subprocess.CompletedProcess], str, Optional[str]]:
-        candidates: List[Optional[str]] = [None]
-        candidates.extend(self._smartctl_candidate_types(device_path))
-        candidates.append("auto")
-        seen: Set[Optional[str]] = set()
+        candidate_types: List[Optional[str]] = [None]
+        candidate_types.extend(self._smartctl_candidate_types(device_path))
+        candidate_types.append("auto")
+        tolerance_levels: List[Optional[str]] = [None]
+        tolerance_levels.extend(self._smartctl_tolerance_candidates(device_path))
+        seen: Set[Tuple[Optional[str], Optional[str]]] = set()
         last_output = ""
         last_result: Optional[subprocess.CompletedProcess] = None
         detection_error = False
+        tolerance_error = False
         mmc_device = "mmcblk" in device_path.lower() or "/mmc" in device_path.lower()
-        for device_type in candidates:
-            if device_type in seen:
-                continue
-            seen.add(device_type)
-            command = ["smartctl"]
-            if device_type:
-                command.extend(["-d", device_type])
-            command.extend(["-H", "-i", "-A", device_path])
-            try:
-                result = self._run(command, use_sudo=True, check=False, capture=True)
-            except Exception as exc:  # pragma: no cover - defensive
-                LOGGER.debug(
-                    "smartctl für %s mit Gerätetyp %s fehlgeschlagen: %s",
-                    device_path,
-                    device_type or "auto",
-                    exc,
-                )
-                return None, "", str(exc)
-            if not isinstance(result, subprocess.CompletedProcess):
-                return None, "", "smartctl konnte nicht ausgeführt werden"
-            output_parts: List[str] = []
-            if result.stdout:
-                output_parts.append(result.stdout)
-            if result.stderr:
-                output_parts.append(result.stderr)
-            output = "\n".join(part for part in output_parts if part).strip()
-            last_output = output
-            last_result = result
-            if output and "unknown device type" in output.lower():
-                detection_error = True
-                continue
-            if self._smartctl_requires_device_type(output):
-                detection_error = True
-                continue
-            return result, output, None
-        if detection_error:
+        for device_type in candidate_types:
+            for tolerance in tolerance_levels:
+                key = (device_type, tolerance)
+                if key in seen:
+                    continue
+                seen.add(key)
+                command = ["smartctl"]
+                if tolerance:
+                    command.extend(["-T", tolerance])
+                if device_type:
+                    command.extend(["-d", device_type])
+                command.extend(["-H", "-i", "-A", device_path])
+                try:
+                    result = self._run(command, use_sudo=True, check=False, capture=True)
+                except Exception as exc:  # pragma: no cover - defensive
+                    LOGGER.debug(
+                        "smartctl für %s mit Gerätetyp %s fehlgeschlagen: %s",
+                        device_path,
+                        device_type or "auto",
+                        exc,
+                    )
+                    return None, "", str(exc)
+                if not isinstance(result, subprocess.CompletedProcess):
+                    return None, "", "smartctl konnte nicht ausgeführt werden"
+                output_parts: List[str] = []
+                if result.stdout:
+                    output_parts.append(result.stdout)
+                if result.stderr:
+                    output_parts.append(result.stderr)
+                output = "\n".join(part for part in output_parts if part).strip()
+                last_output = output
+                last_result = result
+                if output and "unknown device type" in output.lower():
+                    detection_error = True
+                    continue
+                if self._smartctl_requires_device_type(output):
+                    detection_error = True
+                    continue
+                if self._smartctl_requires_tolerance(output) and not tolerance:
+                    tolerance_error = True
+                    continue
+                return result, output, None
+        if detection_error or tolerance_error:
             if mmc_device:
                 message = (
-                    "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert spezielle Unterstützung "
-                    "für SD-/MMC-Karten."
+                    "SMART wird von diesem Speichermedium nicht unterstützt oder erfordert die smartctl-Option '-T permissive'."
                 )
             else:
-                message = "Gerätetyp konnte nicht automatisch ermittelt werden. SMART-Prüfung übersprungen."
+                message = (
+                    "Gerätetyp oder erforderliche smartctl-Toleranz konnte nicht automatisch ermittelt werden. SMART-Prüfung übersprungen."
+                )
         else:
             message = None
         return last_result, last_output, message
@@ -831,11 +855,30 @@ class SystemManager:
             candidates.extend(["sat", "ata"])
         return candidates
 
+    def _smartctl_tolerance_candidates(self, device_path: str) -> List[str]:
+        path_lower = device_path.lower()
+        candidates: List[str] = []
+        if "mmcblk" in path_lower or "/mmc" in path_lower:
+            candidates.extend(["permissive", "verypermissive"])
+        return candidates
+
     def _smartctl_requires_device_type(self, output: str) -> bool:
         if not output:
             return False
         lowered = output.lower()
         return "unable to detect device type" in lowered or "please specify device type" in lowered
+
+    def _smartctl_requires_tolerance(self, output: str) -> bool:
+        if not output:
+            return False
+        lowered = output.lower()
+        if "mandatory smart command failed" in lowered:
+            return True
+        if "add one or more '-t permissive'" in lowered:
+            return True
+        if "standard inquiry" in lowered and "failed" in lowered:
+            return True
+        return False
 
     def _extract_temperature(self, output: str) -> Optional[str]:
         if not output:
