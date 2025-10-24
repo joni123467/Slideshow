@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from PIL import Image
 
 from .config import AppConfig, PlaylistItem
+from .desktop import hide_taskbar, set_wallpaper
 from .info import InfoScreen
 from .media import MediaManager
 from .state import get_state, set_manual_flag, set_state
@@ -417,6 +418,7 @@ class PlayerService:
                 return None
         else:
             controller.ensure_running()
+        hide_taskbar()
         return controller
 
     def _stop_controller(self, side: str) -> None:
@@ -597,6 +599,8 @@ class PlayerService:
             media_type=media_kind,
             preview_path=str(processed_path),
         )
+        if side == "primary" and processed_path.exists():
+            set_wallpaper(processed_path)
         if clear_secondary:
             set_state(
                 None,
