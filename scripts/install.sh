@@ -78,8 +78,31 @@ REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-COMMON_PACKAGES=(git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates x11-xserver-utils)
-apt-get install -y "${COMMON_PACKAGES[@]}"
+COMMON_PACKAGES=(
+  git
+  python3
+  python3-venv
+  python3-pip
+  rsync
+  cifs-utils
+  ffmpeg
+  mpv
+  feh
+  curl
+  ca-certificates
+  x11-xserver-utils
+)
+DESKTOP_HELPER_PACKAGES=(
+  libglib2.0-bin
+  wmctrl
+  x11-utils
+  xfconf
+  pcmanfm
+  pcmanfm-qt
+  qtchooser
+  xwallpaper
+)
+apt-get install -y "${COMMON_PACKAGES[@]}" "${DESKTOP_HELPER_PACKAGES[@]}"
 
 determine_latest_branch() {
   local url="$1"
