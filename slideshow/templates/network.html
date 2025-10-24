@@ -1,133 +1,171 @@
 {% extends 'layout.html' %}
 {% block title %}Netzwerk – Slideshow{% endblock %}
 {% block content %}
-<section class="grid">
-  <article class="network-config">
-    <h2>Netzwerkkonfiguration</h2>
-    <p class="muted">Änderungen am Netzwerk erfordern Administratorrechte und führen ggf. zu einer kurzfristigen Unterbrechung der Verbindung.</p>
-    <form method="post" action="{{ url_for('update_network') }}" class="grid-form network-config__form">
-      <label class="network-config__field">
-        <span class="network-config__field-label">Hostname</span>
-        <input type="text" name="hostname" value="{{ current.hostname or config.network.hostname or '' }}" placeholder="raspberrypi" />
-      </label>
-      <label class="network-config__field">
-        <span class="network-config__field-label">Interface</span>
-        <input type="text" name="interface" value="{{ current.interface or config.network.interface }}" />
-      </label>
-      <fieldset class="network-config__fieldset">
-        <legend>IPv4</legend>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Modus</span>
-          {% set ipv4_mode = (config.network.ipv4.mode or 'dhcp') %}
-          <select name="ipv4_mode">
-            <option value="dhcp" {% if ipv4_mode == 'dhcp' %}selected{% endif %}>DHCP</option>
-            <option value="static" {% if ipv4_mode == 'static' %}selected{% endif %}>Statisch</option>
-          </select>
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Statische Adresse (CIDR)</span>
-          <input type="text" name="ipv4_address" value="{{ config.network.ipv4.static.address or '' }}" />
-          {% if current.ipv4.address %}<span class="network-config__meta">Aktuell: {{ current.ipv4.address }}</span>{% endif %}
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Gateway</span>
-          <input type="text" name="ipv4_router" value="{{ config.network.ipv4.static.router or '' }}" />
-          {% if current.ipv4.router %}<span class="network-config__meta">Aktuell: {{ current.ipv4.router }}</span>{% endif %}
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">DNS-Server (kommagetrennt)</span>
-          <input type="text" name="ipv4_dns" value="{{ config.network.ipv4.static.dns | join(',') if config.network.ipv4.static.dns else '' }}" />
-          {% if current.ipv4.dns %}<span class="network-config__meta">System: {{ current.ipv4.dns | join(', ') }}</span>{% endif %}
-        </label>
-      </fieldset>
-      <fieldset class="network-config__fieldset">
-        <legend>IPv6</legend>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Modus</span>
-          {% set ipv6_mode = (config.network.ipv6.mode or 'dhcp') %}
-          <select name="ipv6_mode">
-            <option value="dhcp" {% if ipv6_mode == 'dhcp' %}selected{% endif %}>Automatisch</option>
-            <option value="static" {% if ipv6_mode == 'static' %}selected{% endif %}>Statisch</option>
-            <option value="disabled" {% if ipv6_mode == 'disabled' %}selected{% endif %}>Deaktiviert</option>
-          </select>
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Statische Adresse (CIDR)</span>
-          <input type="text" name="ipv6_address" value="{{ config.network.ipv6.static.address or '' }}" />
-          {% if current.ipv6.address %}<span class="network-config__meta">Aktuell: {{ current.ipv6.address }}</span>{% endif %}
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">Gateway</span>
-          <input type="text" name="ipv6_router" value="{{ config.network.ipv6.static.router or '' }}" />
-          {% if current.ipv6.router %}<span class="network-config__meta">Aktuell: {{ current.ipv6.router }}</span>{% endif %}
-        </label>
-        <label class="network-config__field">
-          <span class="network-config__field-label">DNS-Server (kommagetrennt)</span>
-          <input type="text" name="ipv6_dns" value="{{ config.network.ipv6.static.dns | join(',') if config.network.ipv6.static.dns else '' }}" />
-          {% if current.ipv6.dns %}<span class="network-config__meta">System: {{ current.ipv6.dns | join(', ') }}</span>{% endif %}
-        </label>
-      </fieldset>
-      <button type="submit" class="network-config__submit">Einstellungen übernehmen</button>
-    </form>
-  </article>
+<section class="network-layout">
+  <div class="network-layout__primary">
+    <article class="network-card network-card--form">
+      <header class="network-card__header">
+        <h2>Netzwerkkonfiguration</h2>
+        <p class="network-card__description">Änderungen am Netzwerk erfordern Administratorrechte und können kurzfristig zu einer Unterbrechung der Verbindung führen.</p>
+      </header>
+      <form method="post" action="{{ url_for('update_network') }}" class="network-form">
+        <section class="network-form__section">
+          <div class="network-form__section-header">
+            <h3>Allgemeine Einstellungen</h3>
+            <p class="network-form__hint">Hostname und primäres Interface des Systems.</p>
+          </div>
+          <div class="network-form__fields network-form__fields--two">
+            <label class="network-field">
+              <span class="network-field__label">Hostname</span>
+              <input type="text" name="hostname" value="{{ current.hostname or config.network.hostname or '' }}" placeholder="raspberrypi" />
+            </label>
+            <label class="network-field">
+              <span class="network-field__label">Interface</span>
+              <input type="text" name="interface" value="{{ current.interface or config.network.interface }}" />
+            </label>
+          </div>
+        </section>
 
-  <article class="network-overview">
-    <h2>Aktuelle Verbindung</h2>
-    {% set ipv4_mode_value = (current.ipv4.mode or config.network.ipv4.mode or 'dhcp') | lower %}
-    {% set ipv6_mode_value = (current.ipv6.mode or config.network.ipv6.mode or 'dhcp') | lower %}
-    <div class="network-status">
-      <section class="network-status__group">
-        <h3>Allgemein</h3>
-        <dl class="network-status__list">
-          <dt>Hostname</dt>
-          <dd>
-            {{ current.hostname or config.network.hostname or 'unbekannt' }}
-            {% if current.hostname and config.network.hostname and current.hostname != config.network.hostname %}
-              <span class="network-status__meta">Konfiguriert: {{ config.network.hostname }}</span>
-            {% endif %}
-          </dd>
-          <dt>Interface</dt>
-          <dd>{{ current.interface or config.network.interface or 'unbekannt' }}</dd>
-          <dt>IPv4-Modus</dt>
-          <dd>{{ {'dhcp': 'DHCP', 'static': 'Statisch'}[ipv4_mode_value] if ipv4_mode_value in ['dhcp', 'static'] else ipv4_mode_value|upper }}</dd>
-          <dt>IPv6-Modus</dt>
-          <dd>{{ {'dhcp': 'Automatisch', 'static': 'Statisch', 'disabled': 'Deaktiviert'}[ipv6_mode_value] if ipv6_mode_value in ['dhcp', 'static', 'disabled'] else ipv6_mode_value|upper }}</dd>
-        </dl>
-      </section>
+        <section class="network-form__section">
+          <div class="network-form__section-header">
+            <h3>IPv4</h3>
+            <p class="network-form__hint">Adresseinstellungen für IPv4-Netzwerke.</p>
+          </div>
+          <div class="network-form__fields">
+            {% set ipv4_mode = (config.network.ipv4.mode or 'dhcp') %}
+            <label class="network-field network-field--full">
+              <span class="network-field__label">Modus</span>
+              <select name="ipv4_mode">
+                <option value="dhcp" {% if ipv4_mode == 'dhcp' %}selected{% endif %}>DHCP</option>
+                <option value="static" {% if ipv4_mode == 'static' %}selected{% endif %}>Statisch</option>
+              </select>
+            </label>
+          </div>
+          <div class="network-form__fields network-form__fields--two">
+            <label class="network-field">
+              <span class="network-field__label">Statische Adresse (CIDR)</span>
+              <input type="text" name="ipv4_address" value="{{ config.network.ipv4.static.address or '' }}" />
+              {% if current.ipv4.address %}<span class="network-field__meta">Aktuell: {{ current.ipv4.address }}</span>{% endif %}
+            </label>
+            <label class="network-field">
+              <span class="network-field__label">Gateway</span>
+              <input type="text" name="ipv4_router" value="{{ config.network.ipv4.static.router or '' }}" />
+              {% if current.ipv4.router %}<span class="network-field__meta">Aktuell: {{ current.ipv4.router }}</span>{% endif %}
+            </label>
+            <label class="network-field network-field--full">
+              <span class="network-field__label">DNS-Server (kommagetrennt)</span>
+              <input type="text" name="ipv4_dns" value="{{ config.network.ipv4.static.dns | join(',') if config.network.ipv4.static.dns else '' }}" />
+              {% if current.ipv4.dns %}<span class="network-field__meta">System: {{ current.ipv4.dns | join(', ') }}</span>{% endif %}
+            </label>
+          </div>
+        </section>
 
-      <section class="network-status__group">
-        <h3>IPv4</h3>
-        <dl class="network-status__list">
-          <dt>Adresse</dt>
-          <dd>{{ current.ipv4.address or '–' }}</dd>
-          <dt>Gateway</dt>
-          <dd>{{ current.ipv4.router or '–' }}</dd>
-          <dt>DNS</dt>
-          <dd>{{ (current.ipv4.dns or []) | join(', ') or '–' }}</dd>
-        </dl>
-      </section>
+        <section class="network-form__section">
+          <div class="network-form__section-header">
+            <h3>IPv6</h3>
+            <p class="network-form__hint">Konfiguration für das IPv6-Netzwerk.</p>
+          </div>
+          <div class="network-form__fields">
+            {% set ipv6_mode = (config.network.ipv6.mode or 'dhcp') %}
+            <label class="network-field network-field--full">
+              <span class="network-field__label">Modus</span>
+              <select name="ipv6_mode">
+                <option value="dhcp" {% if ipv6_mode == 'dhcp' %}selected{% endif %}>Automatisch</option>
+                <option value="static" {% if ipv6_mode == 'static' %}selected{% endif %}>Statisch</option>
+                <option value="disabled" {% if ipv6_mode == 'disabled' %}selected{% endif %}>Deaktiviert</option>
+              </select>
+            </label>
+          </div>
+          <div class="network-form__fields network-form__fields--two">
+            <label class="network-field">
+              <span class="network-field__label">Statische Adresse (CIDR)</span>
+              <input type="text" name="ipv6_address" value="{{ config.network.ipv6.static.address or '' }}" />
+              {% if current.ipv6.address %}<span class="network-field__meta">Aktuell: {{ current.ipv6.address }}</span>{% endif %}
+            </label>
+            <label class="network-field">
+              <span class="network-field__label">Gateway</span>
+              <input type="text" name="ipv6_router" value="{{ config.network.ipv6.static.router or '' }}" />
+              {% if current.ipv6.router %}<span class="network-field__meta">Aktuell: {{ current.ipv6.router }}</span>{% endif %}
+            </label>
+            <label class="network-field network-field--full">
+              <span class="network-field__label">DNS-Server (kommagetrennt)</span>
+              <input type="text" name="ipv6_dns" value="{{ config.network.ipv6.static.dns | join(',') if config.network.ipv6.static.dns else '' }}" />
+              {% if current.ipv6.dns %}<span class="network-field__meta">System: {{ current.ipv6.dns | join(', ') }}</span>{% endif %}
+            </label>
+          </div>
+        </section>
 
-      <section class="network-status__group">
-        <h3>IPv6</h3>
-        <dl class="network-status__list">
-          <dt>Adresse</dt>
-          <dd>{{ current.ipv6.address or '–' }}</dd>
-          <dt>Gateway</dt>
-          <dd>{{ current.ipv6.router or '–' }}</dd>
-          <dt>DNS</dt>
-          <dd>{{ (current.ipv6.dns or []) | join(', ') or '–' }}</dd>
-        </dl>
-      </section>
-    </div>
+        <div class="network-form__actions">
+          <button type="submit" class="network-form__submit">Einstellungen übernehmen</button>
+        </div>
+      </form>
+    </article>
+  </div>
 
-    <section class="network-hints-card">
-      <h3>Hinweise</h3>
+  <div class="network-layout__aside">
+    <article class="network-card network-card--status">
+      <header class="network-card__header">
+        <h2>Aktuelle Verbindung</h2>
+        <p class="network-card__description">Live-Daten vom System. Werte können von den konfigurierten Einstellungen abweichen.</p>
+      </header>
+      {% set ipv4_mode_value = (current.ipv4.mode or config.network.ipv4.mode or 'dhcp') | lower %}
+      {% set ipv6_mode_value = (current.ipv6.mode or config.network.ipv6.mode or 'dhcp') | lower %}
+      <div class="network-status network-status--stacked">
+        <section class="network-status__group">
+          <h3>Allgemein</h3>
+          <dl class="network-status__list">
+            <dt>Hostname</dt>
+            <dd>
+              {{ current.hostname or config.network.hostname or 'unbekannt' }}
+              {% if current.hostname and config.network.hostname and current.hostname != config.network.hostname %}
+                <span class="network-status__meta">Konfiguriert: {{ config.network.hostname }}</span>
+              {% endif %}
+            </dd>
+            <dt>Interface</dt>
+            <dd>{{ current.interface or config.network.interface or 'unbekannt' }}</dd>
+            <dt>IPv4-Modus</dt>
+            <dd>{{ {'dhcp': 'DHCP', 'static': 'Statisch'}[ipv4_mode_value] if ipv4_mode_value in ['dhcp', 'static'] else ipv4_mode_value|upper }}</dd>
+            <dt>IPv6-Modus</dt>
+            <dd>{{ {'dhcp': 'Automatisch', 'static': 'Statisch', 'disabled': 'Deaktiviert'}[ipv6_mode_value] if ipv6_mode_value in ['dhcp', 'static', 'disabled'] else ipv6_mode_value|upper }}</dd>
+          </dl>
+        </section>
+
+        <section class="network-status__group">
+          <h3>IPv4</h3>
+          <dl class="network-status__list">
+            <dt>Adresse</dt>
+            <dd>{{ current.ipv4.address or '–' }}</dd>
+            <dt>Gateway</dt>
+            <dd>{{ current.ipv4.router or '–' }}</dd>
+            <dt>DNS</dt>
+            <dd>{{ (current.ipv4.dns or []) | join(', ') or '–' }}</dd>
+          </dl>
+        </section>
+
+        <section class="network-status__group">
+          <h3>IPv6</h3>
+          <dl class="network-status__list">
+            <dt>Adresse</dt>
+            <dd>{{ current.ipv6.address or '–' }}</dd>
+            <dt>Gateway</dt>
+            <dd>{{ current.ipv6.router or '–' }}</dd>
+            <dt>DNS</dt>
+            <dd>{{ (current.ipv6.dns or []) | join(', ') or '–' }}</dd>
+          </dl>
+        </section>
+      </div>
+    </article>
+
+    <article class="network-card network-card--hints">
+      <header class="network-card__header">
+        <h2>Hinweise</h2>
+      </header>
       <ul class="network-hints">
         <li>Bei statischer Konfiguration sollten Adresse, Gateway und DNS im selben Subnetz liegen.</li>
         <li>Nach Änderungen empfiehlt sich ein Neustart der Netzwerkverbindung oder des Systems.</li>
         {% if current.dns %}<li>DNS laut System: {{ current.dns | join(', ') }}</li>{% endif %}
       </ul>
-    </section>
-  </article>
+    </article>
+  </div>
 </section>
 {% endblock %}

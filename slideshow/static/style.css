@@ -291,108 +291,177 @@ a {
 }
 
 
-.network-config {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.network-config__form {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  align-items: start;
-}
-
-.network-config__form > .network-config__field {
-  background: var(--surface-strong);
-  border-radius: 0.9rem;
-  padding: 1rem 1.15rem;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  gap: 0.6rem;
-  width: min(100%, 26rem);
-  justify-self: start;
-}
-
-.network-config__field-label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.network-config__field input,
-.network-config__field select,
-.network-config__field textarea {
-  width: min(100%, 24rem);
-}
-
-.network-config__fieldset {
-  grid-column: 1 / -1;
+.network-layout {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1080px) {
+  .network-layout {
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    align-items: start;
+  }
+}
+
+.network-layout__primary,
+.network-layout__aside {
+  display: grid;
+  gap: 1.75rem;
+}
+
+.network-card {
   background: var(--surface-strong);
   border-radius: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
   box-shadow: var(--shadow);
-  padding: 1.1rem 1.25rem;
-}
-
-.network-config__fieldset legend {
-  grid-column: 1 / -1;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  padding: 0 0.5rem;
-  margin-bottom: 0.35rem;
-  font-weight: 600;
-}
-
-.network-config__fieldset .network-config__field {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  gap: 0.45rem;
-  width: min(100%, 24rem);
-  justify-self: start;
-}
-
-.network-config__meta {
-  display: block;
-  margin-top: 0.15rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.network-config__submit {
-  grid-column: 1 / -1;
-  justify-self: end;
-  padding: 0.75rem 1.6rem;
-  max-width: none;
-  width: auto;
-}
-
-.network-overview {
+  padding: 1.5rem 1.75rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-.network-status {
-  display: grid;
+.network-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.network-card__header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.network-card__description {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.network-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.network-form__section {
+  display: flex;
+  flex-direction: column;
   gap: 1.2rem;
+}
+
+.network-form__section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.network-form__section-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.network-form__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.network-form__fields {
+  display: grid;
+  gap: 1rem;
+}
+
+.network-form__fields--two {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.network-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.network-field__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.network-field input,
+.network-field select,
+.network-field textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.25);
+  color: inherit;
+  font-size: 0.95rem;
+}
+
+.theme-light .network-field input,
+.theme-light .network-field select,
+.theme-light .network-field textarea {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.network-field input:focus,
+.network-field select:focus,
+.network-field textarea:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.35);
+  outline-offset: 1px;
+}
+
+.network-field__meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.network-field--full {
+  grid-column: 1 / -1;
+}
+
+.network-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.network-form__submit {
+  padding: 0.75rem 1.8rem;
+  font-weight: 600;
+}
+
+.network-status {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.network-status--stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 720px) {
+  .network-status--stacked {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
 .network-status__group {
-  background: var(--surface-strong);
+  background: rgba(15, 23, 42, 0.25);
   border-radius: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
   padding: 1.1rem 1.35rem;
-  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+}
+
+.theme-light .network-status__group {
+  background: rgba(241, 245, 249, 0.7);
 }
 
 .network-status__group h3 {
@@ -407,40 +476,26 @@ a {
   margin: 0;
   display: grid;
   grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
-  row-gap: 0.45rem;
-  column-gap: 0.85rem;
-  font-size: 0.95rem;
+  gap: 0.45rem 1.25rem;
+  align-items: start;
 }
 
 .network-status__list dt {
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--muted);
 }
 
 .network-status__list dd {
   margin: 0;
-  word-break: break-word;
+  font-size: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .network-status__meta {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.network-hints-card {
-  background: var(--surface-strong);
-  border-radius: 0.85rem;
-  padding: 1.1rem 1.35rem;
-  box-shadow: var(--shadow);
-}
-
-.network-hints-card h3 {
-  margin: 0 0 0.65rem;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
@@ -449,10 +504,9 @@ a {
   padding-left: 1.15rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  list-style: disc;
+  gap: 0.55rem;
+  font-size: 0.9rem;
   color: var(--muted);
-  font-size: 0.95rem;
 }
 
 .system-overview .system-usage {
