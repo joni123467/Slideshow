@@ -299,7 +299,8 @@ a {
 
 .network-config__form {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  align-items: start;
+  align-items: stretch;
+  gap: 1.25rem;
 }
 
 .network-config__form > .network-config__field {
@@ -309,8 +310,10 @@ a {
   box-shadow: var(--shadow);
   border: 1px solid rgba(148, 163, 184, 0.25);
   gap: 0.6rem;
-  width: min(100%, 26rem);
-  justify-self: start;
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
+  align-self: stretch;
 }
 
 .network-config__field-label {
@@ -322,7 +325,8 @@ a {
 .network-config__field input,
 .network-config__field select,
 .network-config__field textarea {
-  width: min(100%, 24rem);
+  width: 100%;
+  max-width: none;
 }
 
 .network-config__fieldset {
@@ -354,8 +358,15 @@ a {
   box-shadow: none;
   padding: 0;
   gap: 0.45rem;
-  width: min(100%, 24rem);
-  justify-self: start;
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
+}
+
+.network-config__fieldset .network-config__field input,
+.network-config__fieldset .network-config__field select,
+.network-config__fieldset .network-config__field textarea {
+  max-width: none;
 }
 
 .network-config__meta {

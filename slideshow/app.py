@@ -533,6 +533,36 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             current=current,
         )
 
+    def _clean_ip_value(value: Optional[object]) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _parse_dns_values(value: Optional[object]) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_values = [value]
+        elif isinstance(value, (list, tuple, set)):
+            raw_values = list(value)
+        else:
+            raw_values = [value]
+
+        entries: List[str] = []
+        for item in raw_values:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                fragments = item.replace(";", ",").split(",")
+            else:
+                fragments = [item]
+            for fragment in fragments:
+                cleaned = str(fragment).strip()
+                if cleaned and cleaned not in entries:
+                    entries.append(cleaned)
+        return entries
+
     @app.route("/system")
     @pam_required
     def system_settings():
@@ -879,34 +909,18 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         if hostname:
             network_manager.set_hostname(hostname)
 
-        def _clean(value: Optional[str]) -> Optional[str]:
-            if value is None:
-                return None
-            text = value.strip()
-            return text or None
-
-        def _parse_dns(value: Optional[str]) -> List[str]:
-            if not value:
-                return []
-            entries: List[str] = []
-            for part in value.replace(";", ",").split(","):
-                item = part.strip()
-                if item and item not in entries:
-                    entries.append(item)
-            return entries
-
         ipv4_mode = (request.form.get("ipv4_mode") or cfg.network.ipv4.mode).strip().lower()
         ipv6_mode = (request.form.get("ipv6_mode") or cfg.network.ipv6.mode).strip().lower()
 
         ipv4_static = StaticIPConfig(
-            address=_clean(request.form.get("ipv4_address")),
-            router=_clean(request.form.get("ipv4_router")),
-            dns=_parse_dns(request.form.get("ipv4_dns")),
+            address=_clean_ip_value(request.form.get("ipv4_address")),
+            router=_clean_ip_value(request.form.get("ipv4_router")),
+            dns=_parse_dns_values(request.form.get("ipv4_dns")),
         )
         ipv6_static = StaticIPConfig(
-            address=_clean(request.form.get("ipv6_address")),
-            router=_clean(request.form.get("ipv6_router")),
-            dns=_parse_dns(request.form.get("ipv6_dns")),
+            address=_clean_ip_value(request.form.get("ipv6_address")),
+            router=_clean_ip_value(request.form.get("ipv6_router")),
+            dns=_parse_dns_values(request.form.get("ipv6_dns")),
         )
 
         try:
@@ -1147,6 +1161,109 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "network": network_manager.serialize(),
             "playback": dataclasses.asdict(cfg.playback),
         })
+
+    @app.route("/api/network", methods=["GET", "PUT"])
+    @pam_required
+    def api_network():
+        if request.method == "GET":
+            return jsonify(
+                {
+                    "status": "ok",
+                    "config": network_manager.serialize(),
+                    "current": network_manager.current_settings(),
+                }
+            )
+
+        payload = request.get_json(silent=True)
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            return jsonify({"status": "error", "message": "Ungültiger JSON-Body"}), 400
+
+        hostname = _clean_ip_value(payload.get("hostname")) if "hostname" in payload else None
+        interface_value = payload.get("interface") if "interface" in payload else None
+        interface = _clean_ip_value(interface_value) or cfg.network.interface or "eth0"
+        if hostname:
+            network_manager.set_hostname(hostname)
+
+        ipv4_mode = cfg.network.ipv4.mode or "dhcp"
+        ipv6_mode = cfg.network.ipv6.mode or "dhcp"
+
+        if "ipv4_mode" in payload and payload["ipv4_mode"] is not None:
+            ipv4_mode = str(payload["ipv4_mode"]).strip().lower()
+        if "ipv6_mode" in payload and payload["ipv6_mode"] is not None:
+            ipv6_mode = str(payload["ipv6_mode"]).strip().lower()
+
+        ipv4_static = StaticIPConfig(
+            address=cfg.network.ipv4.static.address,
+            router=cfg.network.ipv4.static.router,
+            dns=list(cfg.network.ipv4.static.dns),
+        )
+        ipv6_static = StaticIPConfig(
+            address=cfg.network.ipv6.static.address,
+            router=cfg.network.ipv6.static.router,
+            dns=list(cfg.network.ipv6.static.dns),
+        )
+
+        if "ipv4_address" in payload:
+            ipv4_static.address = _clean_ip_value(payload.get("ipv4_address"))
+        if "ipv4_router" in payload:
+            ipv4_static.router = _clean_ip_value(payload.get("ipv4_router"))
+        if "ipv4_dns" in payload:
+            ipv4_static.dns = _parse_dns_values(payload.get("ipv4_dns"))
+
+        if "ipv6_address" in payload:
+            ipv6_static.address = _clean_ip_value(payload.get("ipv6_address"))
+        if "ipv6_router" in payload:
+            ipv6_static.router = _clean_ip_value(payload.get("ipv6_router"))
+        if "ipv6_dns" in payload:
+            ipv6_static.dns = _parse_dns_values(payload.get("ipv6_dns"))
+
+        ipv4_payload = payload.get("ipv4")
+        if isinstance(ipv4_payload, dict):
+            if "mode" in ipv4_payload and ipv4_payload["mode"] is not None:
+                ipv4_mode = str(ipv4_payload["mode"]).strip().lower()
+            static_payload = ipv4_payload.get("static")
+            if isinstance(static_payload, dict):
+                if "address" in static_payload:
+                    ipv4_static.address = _clean_ip_value(static_payload.get("address"))
+                if "router" in static_payload:
+                    ipv4_static.router = _clean_ip_value(static_payload.get("router"))
+                if "dns" in static_payload:
+                    ipv4_static.dns = _parse_dns_values(static_payload.get("dns"))
+
+        ipv6_payload = payload.get("ipv6")
+        if isinstance(ipv6_payload, dict):
+            if "mode" in ipv6_payload and ipv6_payload["mode"] is not None:
+                ipv6_mode = str(ipv6_payload["mode"]).strip().lower()
+            static_payload = ipv6_payload.get("static")
+            if isinstance(static_payload, dict):
+                if "address" in static_payload:
+                    ipv6_static.address = _clean_ip_value(static_payload.get("address"))
+                if "router" in static_payload:
+                    ipv6_static.router = _clean_ip_value(static_payload.get("router"))
+                if "dns" in static_payload:
+                    ipv6_static.dns = _parse_dns_values(static_payload.get("dns"))
+
+        try:
+            network_manager.configure_interface(
+                interface,
+                ipv4_mode=ipv4_mode,
+                ipv4=ipv4_static,
+                ipv6_mode=ipv6_mode,
+                ipv6=ipv6_static,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("Konnte Netzwerkeinstellungen via API nicht anwenden")
+            return jsonify({"status": "error", "message": str(exc)}), 500
+
+        return jsonify(
+            {
+                "status": "ok",
+                "config": network_manager.serialize(),
+                "current": network_manager.current_settings(),
+            }
+        )
 
     @app.route("/api/player/<string:action>", methods=["POST"])
     @pam_required
