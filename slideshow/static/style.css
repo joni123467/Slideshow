@@ -298,7 +298,7 @@ a {
 }
 
 .network-config__form {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: minmax(260px, 1fr);
   align-items: stretch;
   gap: 1.25rem;
 }
