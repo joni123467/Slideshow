@@ -120,7 +120,16 @@ class MpvController:
             return False
         if self._load_file_internal(path):
             return True
-        LOGGER.warning("mpv reagiert nicht mehr, Neustart wird versucht")
+        # Nur neu starten, wenn die Instanz wirklich nicht mehr läuft oder der
+        # IPC-Socket verschwunden ist. Ein Neustart, während mpv noch aktiv ist,
+        # führt sonst zu einem kurzen schwarzen Bildschirm.
+        if self.is_running() and self._socket_path and self._socket_path.exists():
+            time.sleep(0.5)
+            if self._load_file_internal(path):
+                return True
+            LOGGER.warning("mpv reagiert nicht, Befehl wird übersprungen")
+            return False
+        LOGGER.warning("mpv scheint beendet zu sein, Neustart wird versucht")
         if not self._restart_process():
             return False
         # Anzeige möglichst schnell wiederherstellen
@@ -202,7 +211,7 @@ class MpvController:
             return None
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-                conn.settimeout(2.0)
+                conn.settimeout(4.0)
                 conn.connect(os.fspath(self._socket_path))
                 message = json.dumps({"command": payload}).encode("utf-8") + b"\n"
                 conn.sendall(message)
