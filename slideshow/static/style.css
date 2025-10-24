@@ -300,6 +300,7 @@ a {
 .network-config__form {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   align-items: stretch;
+  gap: 1.25rem;
 }
 
 .network-config__form > .network-config__field {
@@ -358,14 +359,14 @@ a {
   padding: 0;
   gap: 0.45rem;
   width: 100%;
-  max-width: 24rem;
+  max-width: none;
   justify-self: stretch;
 }
 
 .network-config__fieldset .network-config__field input,
 .network-config__fieldset .network-config__field select,
 .network-config__fieldset .network-config__field textarea {
-  max-width: 24rem;
+  max-width: none;
 }
 
 .network-config__meta {
