@@ -32,6 +32,7 @@ class MpvController:
         self._socket_dir: Optional[pathlib.Path] = None
         self._socket_path: Optional[pathlib.Path] = None
         self._lock = threading.Lock()
+        self._last_loaded: Optional[pathlib.Path] = None
 
     # Lebenszyklus -----------------------------------------------------
     def start(self) -> bool:
@@ -117,13 +118,24 @@ class MpvController:
     def load_file(self, path: pathlib.Path) -> bool:
         if not self.ensure_running():
             return False
-        response = self._command(["loadfile", str(path), "replace"])
-        if isinstance(response, dict) and response.get("error") == "success":
-            # Nach einem erfolgreichen Load sicherstellen, dass die Instanz
-            # nicht im Pausenmodus verharrt.
-            self._command(["set_property", "pause", False])
+        if self._load_file_internal(path):
             return True
-        return False
+        # Nur neu starten, wenn die Instanz wirklich nicht mehr läuft oder der
+        # IPC-Socket verschwunden ist. Ein Neustart, während mpv noch aktiv ist,
+        # führt sonst zu einem kurzen schwarzen Bildschirm.
+        if self.is_running() and self._socket_path and self._socket_path.exists():
+            time.sleep(0.5)
+            if self._load_file_internal(path):
+                return True
+            LOGGER.warning("mpv reagiert nicht, Befehl wird übersprungen")
+            return False
+        LOGGER.warning("mpv scheint beendet zu sein, Neustart wird versucht")
+        if not self._restart_process():
+            return False
+        # Anzeige möglichst schnell wiederherstellen
+        if self._last_loaded and self._last_loaded.exists():
+            self._load_file_internal(self._last_loaded)
+        return self._load_file_internal(path)
 
     def stop_playback(self) -> None:
         self._command(["stop"])
@@ -199,6 +211,7 @@ class MpvController:
             return None
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.settimeout(4.0)
                 conn.connect(os.fspath(self._socket_path))
                 message = json.dumps({"command": payload}).encode("utf-8") + b"\n"
                 conn.sendall(message)
@@ -208,7 +221,7 @@ class MpvController:
                     if not chunk:
                         break
                     data += chunk
-        except OSError as exc:
+        except (OSError, TimeoutError) as exc:
             LOGGER.debug("Fehler bei mpv-Kommunikation: %s", exc)
             return None
         if not data:
@@ -218,6 +231,20 @@ class MpvController:
         except json.JSONDecodeError:
             LOGGER.debug("Ungültige mpv-Antwort: %s", data)
             return None
+
+    def _load_file_internal(self, path: pathlib.Path) -> bool:
+        response = self._command(["loadfile", str(path), "replace"])
+        if isinstance(response, dict) and response.get("error") == "success":
+            self._last_loaded = path
+            # Nach einem erfolgreichen Load sicherstellen, dass die Instanz
+            # nicht im Pausenmodus verharrt.
+            self._command(["set_property", "pause", False])
+            return True
+        return False
+
+    def _restart_process(self) -> bool:
+        self.stop()
+        return self.start()
 
     def _get_property_bool(self, name: str) -> bool:
         response = self._command(["get_property", name])
