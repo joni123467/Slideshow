@@ -80,7 +80,8 @@ class NetworkManager:
         new_block: List[str] = []
         if config_lines:
             new_block.append(f"interface {interface}")
-            new_block.extend(config_lines)
+            indented = [f"    {line}" for line in config_lines]
+            new_block.extend(indented)
 
         with open("/etc/dhcpcd.conf", "w", encoding="utf-8") as fh:
             preserved = "".join(filtered).rstrip("\n")
