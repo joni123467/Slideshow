@@ -291,115 +291,59 @@ a {
 }
 
 
-.network-config {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
+.network-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
 }
 
-.network-config__form {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  align-items: start;
+.network-form {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.network-config__form > .network-config__field {
-  background: var(--surface-strong);
-  border-radius: 0.9rem;
-  padding: 1rem 1.15rem;
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  gap: 0.6rem;
-  width: min(100%, 26rem);
-  justify-self: start;
+.network-form fieldset {
+  gap: 0.75rem;
 }
 
-.network-config__field-label {
-  font-size: 0.9rem;
-  font-weight: 600;
+.network-form fieldset + fieldset {
+  margin-top: 0.25rem;
+}
+
+.network-form .split-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.field-note {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
   color: var(--muted);
 }
 
-.network-config__field input,
-.network-config__field select,
-.network-config__field textarea {
-  width: min(100%, 24rem);
-}
-
-.network-config__fieldset {
-  grid-column: 1 / -1;
+.network-status__groups {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  background: var(--surface-strong);
-  border-radius: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: var(--shadow);
-  padding: 1.1rem 1.25rem;
 }
 
-.network-config__fieldset legend {
-  grid-column: 1 / -1;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  padding: 0 0.5rem;
-  margin-bottom: 0.35rem;
-  font-weight: 600;
-}
-
-.network-config__fieldset .network-config__field {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  gap: 0.45rem;
-  width: min(100%, 24rem);
-  justify-self: start;
-}
-
-.network-config__meta {
-  display: block;
-  margin-top: 0.15rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.network-config__submit {
-  grid-column: 1 / -1;
-  justify-self: end;
-  padding: 0.75rem 1.6rem;
-  max-width: none;
-  width: auto;
-}
-
-.network-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.network-status {
-  display: grid;
-  gap: 1.2rem;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+@media (min-width: 720px) {
+  .network-status__groups {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
 }
 
 .network-status__group {
-  background: var(--surface-strong);
+  background: var(--surface-alt);
   border-radius: 0.85rem;
-  padding: 1.1rem 1.35rem;
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  padding: 1rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
 .network-status__group h3 {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
 
@@ -407,50 +351,30 @@ a {
   margin: 0;
   display: grid;
   grid-template-columns: minmax(130px, max-content) minmax(0, 1fr);
-  row-gap: 0.45rem;
-  column-gap: 0.85rem;
-  font-size: 0.95rem;
+  gap: 0.35rem 1.1rem;
+  align-items: start;
 }
 
 .network-status__list dt {
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--muted);
 }
 
 .network-status__list dd {
   margin: 0;
-  word-break: break-word;
-}
-
-.network-status__meta {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.network-hints-card {
-  background: var(--surface-strong);
-  border-radius: 0.85rem;
-  padding: 1.1rem 1.35rem;
-  box-shadow: var(--shadow);
-}
-
-.network-hints-card h3 {
-  margin: 0 0 0.65rem;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
-.network-hints {
-  margin: 0;
-  padding-left: 1.15rem;
+  font-size: 0.95rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  list-style: disc;
+  gap: 0.25rem;
+}
+
+.network-hints ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   color: var(--muted);
   font-size: 0.95rem;
 }
