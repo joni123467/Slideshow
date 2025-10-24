@@ -90,6 +90,14 @@ class PlayerService:
         self._mpv_args = self._collect_mpv_args()
         self._reload.set()
 
+    def restart(self) -> None:
+        """Stoppt den Dienst und startet ihn unmittelbar neu."""
+
+        was_running = self.is_running()
+        LOGGER.info("Starte Slideshow-Player neu (vorher aktiv: %s)", was_running)
+        self.stop()
+        self.start()
+
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 

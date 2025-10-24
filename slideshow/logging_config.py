@@ -6,7 +6,7 @@ import logging.config
 import logging.handlers
 import pathlib
 import warnings
-from typing import Dict
+from typing import Dict, Tuple
 
 from .config import DATA_DIR
 
@@ -41,6 +41,8 @@ LOG_GROUPS = {
 }
 
 _configured = False
+
+LOG_LEVEL_CHOICES: Tuple[str, ...] = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
 def configure_logging() -> None:
@@ -128,4 +130,35 @@ def available_logs() -> Dict[str, dict]:
         "path": LOG_DIR / "update.log",
     }
     return result
+
+
+def apply_log_level(level: str) -> str:
+    """Aktualisiert das Log-Level für alle bekannten Logger."""
+
+    normalized = (level or "INFO").strip().upper()
+    if normalized not in LOG_LEVEL_CHOICES:
+        raise ValueError(f"Unbekanntes Log-Level: {level}")
+
+    numeric = getattr(logging, normalized, logging.INFO)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric)
+    for handler in root_logger.handlers:
+        handler.setLevel(numeric)
+
+    for group in LOG_GROUPS.values():
+        for logger_name in group["loggers"]:
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(numeric)
+            for handler in logger.handlers:
+                handler.setLevel(numeric)
+
+    return normalized
+
+
+def current_log_level() -> str:
+    """Gibt das effektive Log-Level der Anwendung zurück."""
+
+    root_logger = logging.getLogger()
+    return logging.getLevelName(root_logger.getEffectiveLevel())
 

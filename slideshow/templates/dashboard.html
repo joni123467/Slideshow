@@ -10,7 +10,7 @@
     <h2>Aktueller Status</h2>
     <div class="status-flags">
       <span data-status="service" class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
-        {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
+        {% if service_active %}Slideshow läuft{% else %}Slideshow ist gestoppt{% endif %}
       </span>
       <span data-status="info" class="status-indicator {% if state and state.info_screen %}status-indicator--info{% else %}status-indicator--neutral{% endif %}">
         {% if state and state.info_screen %}Infobildschirm aktiv{% else %}Infobildschirm aus{% endif %}
@@ -47,7 +47,7 @@
     </div>
     {% endif %}
     <p><strong>Infobildschirm:</strong> <span data-state="info-screen">{% if state.info_screen %}aktiv{% else %}inaktiv{% endif %}{% if state.info_manual %} (manuell){% endif %}</span></p>
-    <p><strong>Service-Status:</strong> {{ service_status or 'unbekannt' }}</p>
+    <p><strong>Slideshow-Status:</strong> {{ service_status or 'unbekannt' }}</p>
     <p><strong>Autostart:</strong> {% if config.playback.auto_start %}aktiviert{% else %}deaktiviert{% endif %}</p>
   </article>
 

@@ -34,14 +34,14 @@ Aktueller Wiedergabestatus.
   "secondary_preview_available": false,
   "info_screen": false,
   "info_manual": false,
-  "service_status": "active",
+  "service_status": "running",
   "service_active": true,
   "version": "0.0.4",
   "theme": "mid"
 }
 ```
 
-Das Feld `service_status` spiegelt den Rohwert von `systemctl is-active` wider, `service_active` ist ein boolesches Convenience-Feld. Die `*_preview`-Felder geben Pfadinformationen (falls verfügbar) und einen Cache-Busting-Zeitstempel an, sodass Clients gezielt Vorschaubilder nachladen können.
+Das Feld `service_status` beschreibt den Status der Slideshow-Wiedergabe (`running` oder `stopped`), `service_active` liefert das dazugehörige Boolesche Convenience-Feld. Die `*_preview`-Felder geben Pfadinformationen (falls verfügbar) und einen Cache-Busting-Zeitstempel an, sodass Clients gezielt Vorschaubilder nachladen können.
 
 ### `GET /api/config`
 
