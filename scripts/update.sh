@@ -114,6 +114,34 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+COMMON_PACKAGES=(
+  git
+  python3
+  python3-venv
+  python3-pip
+  rsync
+  cifs-utils
+  ffmpeg
+  mpv
+  feh
+  curl
+  ca-certificates
+  x11-xserver-utils
+)
+DESKTOP_HELPER_PACKAGES=(
+  libglib2.0-bin
+  wmctrl
+  x11-utils
+  xfconf
+  pcmanfm
+  pcmanfm-qt
+  qtchooser
+  xwallpaper
+)
+apt-get install -y "${COMMON_PACKAGES[@]}" "${DESKTOP_HELPER_PACKAGES[@]}"
+
 if [[ -z "$BRANCH" && -f "$BRANCH_FILE" ]]; then
   BRANCH=$(cat "$BRANCH_FILE")
 fi
