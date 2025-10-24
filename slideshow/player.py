@@ -904,17 +904,28 @@ class PlayerService:
         details = []
         if network.interface:
             details.append(f"Netzwerkinterface: {network.interface}")
-        mode = (network.mode or "dhcp").lower()
-        if mode == "static":
-            address = (network.static or {}).get("address") if network.static else None
-            router = (network.static or {}).get("router") if network.static else None
+        ipv4_mode = (network.ipv4.mode or "dhcp").lower()
+        if ipv4_mode == "static":
+            ipv4_address = network.ipv4.static.address
             details.append(
-                "Netzwerkmodus: Statisch" + (f" ({address})" if address else "")
+                "IPv4-Modus: Statisch" + (f" ({ipv4_address})" if ipv4_address else "")
             )
-            if router:
-                details.append(f"Gateway: {router}")
+            if network.ipv4.static.router:
+                details.append(f"IPv4-Gateway: {network.ipv4.static.router}")
         else:
-            details.append("Netzwerkmodus: DHCP")
+            details.append("IPv4-Modus: DHCP")
+        ipv6_mode = (network.ipv6.mode or "dhcp").lower()
+        if ipv6_mode == "static":
+            ipv6_address = network.ipv6.static.address
+            details.append(
+                "IPv6-Modus: Statisch" + (f" ({ipv6_address})" if ipv6_address else "")
+            )
+            if network.ipv6.static.router:
+                details.append(f"IPv6-Gateway: {network.ipv6.static.router}")
+        elif ipv6_mode in {"disabled", "off"}:
+            details.append("IPv6: deaktiviert")
+        else:
+            details.append("IPv6-Modus: Automatisch")
         details.append(f"Medienverzeichnis: {self.config.media_root}")
         details.append(
             f"Automatischer Start: {'Ja' if playback.auto_start else 'Nein'}"

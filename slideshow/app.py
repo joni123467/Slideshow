@@ -30,6 +30,7 @@ from .auth import PamAuthenticator, User
 from .config import (
     AppConfig,
     PlaylistItem,
+    StaticIPConfig,
     export_config_bundle,
     import_config_bundle,
     normalize_restart_times,
@@ -775,6 +776,26 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
                 )
         return redirect(url_for("system_settings"))
 
+    @app.route("/system/smart-test", methods=["POST"])
+    @pam_required
+    def system_smart_test():
+        device = (request.form.get("device") or "").strip()
+        test = (request.form.get("test") or "short").strip().lower()
+        if not device:
+            flash("Kein Laufwerk angegeben", "danger")
+            return redirect(url_for("system_settings"))
+        try:
+            message = system_manager.run_smart_test(device, test)
+        except FileNotFoundError:
+            flash("smartctl ist nicht verfügbar. Bitte smartmontools installieren.", "danger")
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        except RuntimeError as exc:
+            flash(str(exc), "danger")
+        else:
+            flash(message, "success")
+        return redirect(url_for("system_settings"))
+
     @app.route("/playlist/<int:index>/delete", methods=["POST"])
     @pam_required
     def playlist_delete(index: int):
@@ -852,19 +873,55 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
     @app.route("/network", methods=["POST"])
     @pam_required
     def update_network():
-        hostname = request.form.get("hostname")
-        mode = request.form.get("mode")
-        interface = request.form.get("interface") or cfg.network.interface
+        hostname = (request.form.get("hostname") or "").strip()
+        interface = (request.form.get("interface") or cfg.network.interface or "eth0").strip()
+
         if hostname:
             network_manager.set_hostname(hostname)
-        if mode == "static":
-            address = request.form.get("address")
-            router = request.form.get("router")
-            dns = request.form.get("dns")
-            network_manager.configure_static(interface, address, router, dns)
+
+        def _clean(value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return None
+            text = value.strip()
+            return text or None
+
+        def _parse_dns(value: Optional[str]) -> List[str]:
+            if not value:
+                return []
+            entries: List[str] = []
+            for part in value.replace(";", ",").split(","):
+                item = part.strip()
+                if item and item not in entries:
+                    entries.append(item)
+            return entries
+
+        ipv4_mode = (request.form.get("ipv4_mode") or cfg.network.ipv4.mode).strip().lower()
+        ipv6_mode = (request.form.get("ipv6_mode") or cfg.network.ipv6.mode).strip().lower()
+
+        ipv4_static = StaticIPConfig(
+            address=_clean(request.form.get("ipv4_address")),
+            router=_clean(request.form.get("ipv4_router")),
+            dns=_parse_dns(request.form.get("ipv4_dns")),
+        )
+        ipv6_static = StaticIPConfig(
+            address=_clean(request.form.get("ipv6_address")),
+            router=_clean(request.form.get("ipv6_router")),
+            dns=_parse_dns(request.form.get("ipv6_dns")),
+        )
+
+        try:
+            network_manager.configure_interface(
+                interface,
+                ipv4_mode=ipv4_mode,
+                ipv4=ipv4_static,
+                ipv6_mode=ipv6_mode,
+                ipv6=ipv6_static,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("Konnte Netzwerkeinstellungen nicht anwenden: %s", exc)
+            flash("Netzwerkeinstellungen konnten nicht aktualisiert werden", "danger")
         else:
-            network_manager.configure_dhcp(interface)
-        flash("Netzwerk aktualisiert", "success")
+            flash("Netzwerk aktualisiert", "success")
         return redirect(url_for("network_settings"))
 
     @app.route("/player/<string:action>", methods=["POST"])
