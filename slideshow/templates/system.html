@@ -26,19 +26,20 @@
     <h2>Service &amp; Aktionen</h2>
     <div class="status-flags">
       <span class="status-indicator {% if service_active %}status-indicator--ok{% else %}status-indicator--down{% endif %}">
-        {% if service_active %}Dienst läuft{% else %}Dienst ist inaktiv{% endif %}
+        {% if service_active %}Slideshow läuft{% else %}Slideshow ist gestoppt{% endif %}
       </span>
-      <span class="muted">Status laut systemd: {{ service_status or 'unbekannt' }}</span>
+      <span class="muted">Status der Wiedergabe: {{ service_status or 'unbekannt' }}</span>
     </div>
+    <p class="muted">Die folgenden Aktionen betreffen ausschließlich die Slideshow. Das Webinterface bleibt erreichbar.</p>
     <div class="button-row">
       <form method="post" action="{{ url_for('system_service', action='restart') }}">
-        <button type="submit">Service neu starten</button>
+        <button type="submit">Slideshow neu starten</button>
       </form>
       <form method="post" action="{{ url_for('system_service', action='start') }}">
-        <button type="submit">Service starten</button>
+        <button type="submit">Slideshow starten</button>
       </form>
       <form method="post" action="{{ url_for('system_service', action='stop') }}">
-        <button type="submit">Service stoppen</button>
+        <button type="submit">Slideshow stoppen</button>
       </form>
     </div>
     <div class="button-row">
@@ -49,6 +50,23 @@
         <button type="submit" class="danger">Herunterfahren</button>
       </form>
     </div>
+    <form method="post" action="{{ url_for('update_log_level') }}" class="inline-form">
+      <label>Log-Level
+        <select name="log_level">
+          {% for level in log_level_choices %}
+          <option value="{{ level }}" {% if current_log_level == level %}selected{% endif %}>{{ level }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Log-Level speichern</button>
+    </form>
+    <form method="post" action="{{ url_for('update_restart_schedule') }}" class="inline-form">
+      <label>Geplante Neustarts
+        <input type="text" name="restart_times" value="{{ scheduled_restarts | join(', ') }}" placeholder="z. B. 03:00, 14:00" />
+      </label>
+      <button type="submit">Zeitplan speichern</button>
+      <p class="muted form-help">Mehrere Zeiten durch Komma oder Zeilenumbruch trennen. Leer lassen, um geplante Neustarts zu deaktivieren.</p>
+    </form>
   </article>
 
   <article>
@@ -90,6 +108,9 @@
       </label>
       <button type="button" id="log-refresh">Aktualisieren</button>
       <a id="log-download" class="button-link" href="#" download>Herunterladen</a>
+      <form method="post" action="{{ url_for('delete_log', name='__LOG__') }}" id="log-delete-form" class="inline-form">
+        <button type="submit" id="log-delete-button" class="danger" disabled>Log löschen</button>
+      </form>
     </div>
     <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
   </article>
@@ -105,8 +126,36 @@
     const linesInput = document.getElementById('log-lines');
     const refresh = document.getElementById('log-refresh');
     const downloadLink = document.getElementById('log-download');
+    const deleteForm = document.getElementById('log-delete-form');
+    const deleteButton = document.getElementById('log-delete-button');
     const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
     const downloadBase = "{{ url_for('download_log', name='__LOG__') }}";
+    const deleteBase = "{{ url_for('delete_log', name='__LOG__') }}";
+
+    function updateLogActions() {
+      if (!select) {
+        return;
+      }
+      const name = select.value;
+      if (downloadLink) {
+        if (name) {
+          downloadLink.classList.remove('is-disabled');
+          downloadLink.href = downloadBase.replace('__LOG__', encodeURIComponent(name));
+        } else {
+          downloadLink.classList.add('is-disabled');
+          downloadLink.href = '#';
+        }
+      }
+      if (deleteForm && deleteButton) {
+        if (name) {
+          deleteButton.disabled = false;
+          deleteForm.action = deleteBase.replace('__LOG__', encodeURIComponent(name));
+        } else {
+          deleteButton.disabled = true;
+          deleteForm.action = '#';
+        }
+      }
+    }
 
     async function loadLog() {
       if (!select || !output) {
@@ -114,17 +163,10 @@
       }
       const name = select.value;
       const lines = linesInput && linesInput.value ? linesInput.value : '200';
+      updateLogActions();
       if (!name) {
         output.textContent = 'Keine Logdatei ausgewählt.';
-        if (downloadLink) {
-          downloadLink.classList.add('is-disabled');
-          downloadLink.href = '#';
-        }
         return;
-      }
-      if (downloadLink) {
-        downloadLink.classList.remove('is-disabled');
-        downloadLink.href = downloadBase.replace('__LOG__', encodeURIComponent(name));
       }
       output.textContent = 'Lade Log …';
       try {
@@ -144,17 +186,32 @@
       refresh.addEventListener('click', loadLog);
     }
     if (select) {
-      select.addEventListener('change', loadLog);
+      select.addEventListener('change', () => {
+        updateLogActions();
+        loadLog();
+      });
     }
     if (linesInput) {
       linesInput.addEventListener('change', loadLog);
     }
 
+    if (deleteForm && deleteButton) {
+      deleteForm.addEventListener('submit', (event) => {
+        if (!select || !select.value) {
+          event.preventDefault();
+          return;
+        }
+        if (!window.confirm('Ausgewählte Logdatei wirklich löschen?')) {
+          event.preventDefault();
+        }
+      });
+    }
+
     if (select && select.value) {
+      updateLogActions();
       loadLog();
-    } else if (downloadLink) {
-      downloadLink.classList.add('is-disabled');
-      downloadLink.href = '#';
+    } else {
+      updateLogActions();
     }
   });
 </script>

@@ -211,6 +211,15 @@ class SystemManager:
             return "".join(content)
         return "".join(content[-lines:])
 
+    def delete_log(self, name: str) -> None:
+        logs = self.available_logs()
+        path = logs.get(name)
+        if not path:
+            raise ValueError("Unbekanntes Log")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8"):
+            pass
+
     # Helpers ---------------------------------------------------------
     def _detect_resolution_from_xrandr(self) -> Optional[str]:
         try:
