@@ -1,65 +1,105 @@
-"""Hintergrundzeitplaner für geplante Neustarts."""
+"""Verwaltung geplanter Neustarts über Cron."""
 from __future__ import annotations
 
-import datetime
 import logging
-import threading
-from typing import Iterable, List, Optional
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:  # pragma: no cover - nur für Typprüfung
-    from .player import PlayerService
+import shutil
+import subprocess
+from typing import Iterable, List, Optional, Sequence
 
 LOGGER = logging.getLogger(__name__)
 
+CRON_MARKER = "# SLIDESHOW-AUTO-RESTART"
+DEFAULT_COMMAND = "/sbin/shutdown -r now"
+
 
 class RestartScheduler:
-    """Verwaltet tägliche Neustarts des Player-Dienstes."""
+    """Pflegt Cron-Jobs für automatische Neustarts."""
 
-    def __init__(self, player: Optional["PlayerService"] = None, times: Optional[Iterable[str]] = None) -> None:
-        self._lock = threading.Lock()
-        self._times: List[int] = []
-        self._player: Optional["PlayerService"] = player
-        self._stop = threading.Event()
-        self._wakeup = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="RestartScheduler", daemon=True)
+    def __init__(
+        self,
+        player: Optional[object] = None,
+        times: Optional[Iterable[str]] = None,
+        *,
+        cron_user: str = "root",
+        command: str = DEFAULT_COMMAND,
+    ) -> None:
+        self._player = player  # für Abwärtskompatibilität, wird nicht mehr genutzt
+        self._times: List[str] = []
+        self._cron_user = cron_user
+        self._command = command
+        self._marker = CRON_MARKER
         if times:
             self.update_schedule(times)
-        self._thread.start()
 
-    def set_player(self, player: "PlayerService") -> None:
-        """Aktualisiert den Player, der neugestartet werden soll."""
+    # Kompatibilitäts-Methoden -------------------------------------------
+    def set_player(self, player: object) -> None:  # pragma: no cover - Kompatibilität
+        self._player = player
 
-        with self._lock:
-            self._player = player
-        self._wakeup.set()
+    def stop(self) -> None:  # pragma: no cover - keine Threads mehr notwendig
+        return
 
-    def stop(self) -> None:
-        """Beendet den Scheduler-Thread."""
+    # Öffentliche API ----------------------------------------------------
+    def scheduled_times(self) -> List[str]:
+        return list(self._times)
 
-        self._stop.set()
-        self._wakeup.set()
-        if self._thread.is_alive():
-            self._thread.join(timeout=2)
-
-    def update_schedule(self, times: Iterable[str]) -> None:
-        """Setzt die täglichen Neustartzeiten."""
-
+    def update_schedule(self, times: Iterable[str]) -> bool:
         minutes = self._normalize_times(times)
-        with self._lock:
-            self._times = minutes
-        self._wakeup.set()
-        if minutes:
-            LOGGER.info("Geplante Neustarts aktualisiert: %s", ", ".join(self._format_times(minutes)))
+        formatted = [f"{value // 60:02d}:{value % 60:02d}" for value in minutes]
+        if formatted == self._times and self._cron_contains(formatted):
+            return True
+        try:
+            self._apply_crontab(minutes)
+        except Exception:  # pragma: no cover - defensive
+            LOGGER.exception("Konnte Cron-Einträge für Neustarts nicht aktualisieren")
+            self._times = formatted
+            return False
         else:
-            LOGGER.info("Geplante Neustarts deaktiviert")
+            self._times = formatted
+            if formatted:
+                LOGGER.info("Geplante Systemneustarts über Cron: %s", ", ".join(formatted))
+            else:
+                LOGGER.info("Geplante Systemneustarts deaktiviert")
+            return True
 
-    def _format_times(self, minutes: List[int]) -> List[str]:
-        return [f"{minute // 60:02d}:{minute % 60:02d}" for minute in minutes]
+    # Interne Helfer -----------------------------------------------------
+    def _cron_contains(self, formatted: Sequence[str]) -> bool:
+        existing = self._read_crontab()
+        scheduled = sorted(self._extract_times(existing))
+        return scheduled == sorted(formatted)
+
+    def _apply_crontab(self, minutes: Sequence[int]) -> None:
+        existing = self._read_crontab()
+        retained = [line for line in existing if self._marker not in line]
+        entries = list(retained)
+        for value in sorted(set(minutes)):
+            hour, minute = divmod(value, 60)
+            line = f"{minute} {hour} * * * {self._command} {self._marker}"
+            entries.append(line)
+        data = "\n".join(entries).rstrip()
+        if data:
+            data += "\n"
+        self._write_crontab(data)
+
+    def _extract_times(self, lines: Sequence[str]) -> List[str]:
+        times: List[str] = []
+        for line in lines:
+            if self._marker not in line:
+                continue
+            parts = line.split()
+            if len(parts) < 6:
+                continue
+            minute, hour = parts[0], parts[1]
+            try:
+                hour_int = int(hour)
+                minute_int = int(minute)
+            except ValueError:
+                continue
+            if 0 <= hour_int < 24 and 0 <= minute_int < 60:
+                times.append(f"{hour_int:02d}:{minute_int:02d}")
+        return times
 
     def _normalize_times(self, times: Iterable[str]) -> List[int]:
-        normalized: List[int] = []
+        values: List[int] = []
         seen = set()
         for raw in times:
             if raw is None:
@@ -75,70 +115,63 @@ class RestartScheduler:
                 hour = int(hour_part)
                 minute = int(minute_part)
             except ValueError:
-                LOGGER.warning("Überspringe ungültige Neustartzeit '%s'", text)
+                LOGGER.warning("Ungültige Neustartzeit in Cron-Planer ignoriert: %s", text)
                 continue
             if not (0 <= hour < 24 and 0 <= minute < 60):
-                LOGGER.warning("Überspringe Neustartzeit außerhalb des Bereichs: '%s'", text)
+                LOGGER.warning("Neustartzeit außerhalb des zulässigen Bereichs: %s", text)
                 continue
             value = hour * 60 + minute
             if value in seen:
                 continue
             seen.add(value)
-            normalized.append(value)
-        normalized.sort()
-        return normalized
+            values.append(value)
+        values.sort()
+        return values
 
-    def _run(self) -> None:  # pragma: no cover - Hintergrundthread
-        while not self._stop.is_set():
-            next_wakeup = self._next_occurrence()
-            if next_wakeup is None:
-                self._wakeup.wait(timeout=86400)
-                self._wakeup.clear()
-                continue
-
-            now = datetime.datetime.now()
-            delay = (next_wakeup - now).total_seconds()
-            if delay > 0:
-                awakened = self._wakeup.wait(timeout=delay)
-                if awakened:
-                    self._wakeup.clear()
-                    continue
-            if self._stop.is_set():
-                break
-            self._perform_restart()
-            self._wakeup.wait(timeout=60)
-            self._wakeup.clear()
-
-    def _next_occurrence(self) -> Optional[datetime.datetime]:
-        with self._lock:
-            entries = list(self._times)
-        if not entries:
-            return None
-        now = datetime.datetime.now()
-        candidates: List[datetime.datetime] = []
-        for minutes in entries:
-            hour, minute = divmod(minutes, 60)
-            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if candidate <= now:
-                candidate += datetime.timedelta(days=1)
-            candidates.append(candidate)
-        return min(candidates)
-
-    def _perform_restart(self) -> None:
-        with self._lock:
-            player = self._player
-        if player is None:
-            LOGGER.debug("Kein Player für geplanten Neustart verfügbar")
-            return
-        LOGGER.info("Führe geplanten Neustart der Slideshow aus")
+    def _read_crontab(self) -> List[str]:
+        cmd = self._cron_command(["-l"])
         try:
-            player.restart()
-        except Exception:  # pragma: no cover - defensive
-            LOGGER.exception("Geplanter Neustart fehlgeschlagen")
+            result = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError:
+            LOGGER.warning("crontab-Kommando nicht gefunden – geplante Neustarts können nicht eingerichtet werden")
+            return []
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            if "no crontab for" in stderr.lower():
+                return []
+            LOGGER.warning("Konnte Cron-Tabelle nicht lesen: %s", stderr)
+            return []
+        return [line for line in result.stdout.splitlines()]
 
-    def scheduled_times(self) -> List[str]:
-        """Gibt die konfigurierten Zeiten als Zeichenketten zurück."""
+    def _write_crontab(self, data: str) -> None:
+        cmd = self._cron_command(["-"])
+        try:
+            subprocess.run(cmd, input=data, text=True, check=True)
+        except FileNotFoundError:
+            LOGGER.warning("crontab-Kommando nicht gefunden – geplante Neustarts können nicht gespeichert werden")
+        except subprocess.CalledProcessError as exc:
+            LOGGER.warning("Fehler beim Schreiben der Cron-Tabelle: %s", exc)
 
-        with self._lock:
-            minutes = list(self._times)
-        return self._format_times(minutes)
+    def _cron_command(self, args: Sequence[str]) -> List[str]:
+        base = ["crontab"]
+        if self._cron_user:
+            base.extend(["-u", self._cron_user])
+        base.extend(args)
+        sudo = shutil.which("sudo")
+        if sudo and self._needs_privileges():
+            return [sudo] + base
+        return base
+
+    def _needs_privileges(self) -> bool:
+        try:
+            import getpass
+            return self._cron_user and getpass.getuser() != self._cron_user
+        except Exception:
+            return bool(self._cron_user)
+

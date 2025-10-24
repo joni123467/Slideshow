@@ -62,11 +62,23 @@
     </form>
     <form method="post" action="{{ url_for('update_restart_schedule') }}" class="inline-form">
       <label>Geplante Neustarts
-        <input type="text" name="restart_times" value="{{ scheduled_restarts | join(', ') }}" placeholder="z. B. 03:00, 14:00" />
+        <input type="text" name="restart_times" value="{{ scheduled_restart_text }}" placeholder="z. B. 03:00, 14:00" />
       </label>
       <button type="submit">Zeitplan speichern</button>
       <p class="muted form-help">Mehrere Zeiten durch Komma oder Zeilenumbruch trennen. Leer lassen, um geplante Neustarts zu deaktivieren.</p>
     </form>
+    <div class="scheduled-restarts">
+      <p class="muted">Aktuell geplante Neustarts des Raspberry Pi:</p>
+      {% if scheduled_restart_list %}
+      <ul class="restart-list">
+        {% for time in scheduled_restart_list %}
+        <li><code>{{ time }}</code></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Keine Neustarts geplant.</p>
+      {% endif %}
+    </div>
   </article>
 
   <article>

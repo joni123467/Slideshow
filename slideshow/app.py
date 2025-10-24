@@ -521,6 +521,13 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         for branch in branches:
             if branch not in branch_choices:
                 branch_choices.append(branch)
+        restart_scheduler = app.extensions.get("restart_scheduler")
+        scheduled_restart_list: List[str] = []
+        if restart_scheduler:
+            scheduled_restart_list = restart_scheduler.scheduled_times()
+        if not scheduled_restart_list:
+            scheduled_restart_list = list(cfg.maintenance.auto_restart_times)
+        scheduled_restart_text = ", ".join(cfg.maintenance.auto_restart_times)
         service_running = player.is_running()
         service_status = "läuft" if service_running else "gestoppt"
         return render_template(
@@ -533,7 +540,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             service_status=service_status,
             service_active=service_running,
             current_log_level=cfg.logging.level,
-            scheduled_restarts=cfg.maintenance.auto_restart_times,
+            scheduled_restart_list=scheduled_restart_list,
+            scheduled_restart_text=scheduled_restart_text,
         )
 
     @app.route("/system/theme", methods=["POST"])
@@ -588,13 +596,15 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         cfg.maintenance.auto_restart_times = normalized
         cfg.save()
         restart_scheduler = app.extensions.get("restart_scheduler")
+        success = True
         if restart_scheduler:
-            restart_scheduler.update_schedule(normalized)
+            success = restart_scheduler.update_schedule(normalized)
         if normalized:
-            flash(
-                "Geplante Neustarts gespeichert: " + ", ".join(normalized),
-                "success",
-            )
+            message = "Geplante Neustarts gespeichert: " + ", ".join(normalized)
+            category = "success" if success else "warning"
+            if not success:
+                message += " – Cron konnte nicht aktualisiert werden"
+            flash(message, category)
         else:
             flash("Geplante Neustarts deaktiviert", "info")
         return redirect(url_for("system_settings"))

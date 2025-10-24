@@ -1,7 +1,6 @@
 """Erzeugt Informations-Bildschirme für die Slideshow."""
 from __future__ import annotations
 
-import datetime as _dt
 import pathlib
 from typing import Iterable, List, Optional, Sequence
 
@@ -18,6 +17,7 @@ class InfoScreen:
     def __init__(self, output_dir: pathlib.Path = INFO_DIR):
         self.output_dir = pathlib.Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._last_signature: Optional[tuple] = None
 
     def render(
         self,
@@ -31,21 +31,31 @@ class InfoScreen:
         max_text_width = width - 2 * margin
         background = "#0b1d36"
 
-        now = _dt.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        addr_list = list(addresses)
+        detail_lines = list(details or [])
+        signature = (
+            hostname,
+            tuple(addr_list),
+            bool(manual),
+            tuple(detail_lines),
+        )
+        cached_path = self.output_dir / "info_screen.png"
+        if self._last_signature == signature and cached_path.exists():
+            return cached_path
+
         lines = [
             "Slideshow bereit",
             f"Hostname: {hostname}",
             "IP-Adressen:",
         ]
-        ips = list(addresses) or ["keine Adresse verfügbar"]
+        ips = addr_list or ["keine Adresse verfügbar"]
         lines.extend([f"  - {ip}" for ip in ips])
         lines.append("")
-        lines.append(f"Stand: {now}")
         if manual:
             lines.append("(Infobildschirm manuell aktiviert)")
-        if details:
+        if detail_lines:
             lines.append("")
-            lines.extend(details)
+            lines.extend(detail_lines)
 
         title_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
         text_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -123,8 +133,9 @@ class InfoScreen:
             draw.text((margin, y), line, font=text_font, fill="#e2ebff")
             y += text_height + line_gap
 
-        output_path = self.output_dir / "info_screen.png"
+        output_path = cached_path
         image.save(output_path, format="PNG")
+        self._last_signature = signature
         return output_path
 
     def _wrap_lines(
