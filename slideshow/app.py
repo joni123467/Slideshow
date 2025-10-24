@@ -136,6 +136,28 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         except Exception:
             return str(value)
 
+    @app.template_filter("filesize")
+    def filesize(value):
+        try:
+            size = float(value)
+        except (TypeError, ValueError):
+            return ""
+        units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+        index = 0
+        while size >= 1024 and index < len(units) - 1:
+            size /= 1024
+            index += 1
+        if units[index] == "B":
+            return f"{int(size)} B"
+        return f"{size:.1f} {units[index]}"
+
+    @app.template_filter("percent")
+    def percent(value):
+        try:
+            return f"{float(value):.1f}%"
+        except (TypeError, ValueError):
+            return ""
+
     login_manager = LoginManager(app)
     login_manager.login_view = "login"
     authenticator = PamAuthenticator()
@@ -521,6 +543,9 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         for branch in branches:
             if branch not in branch_choices:
                 branch_choices.append(branch)
+        overview = system_manager.system_overview()
+        storage_info = system_manager.storage_devices()
+        diagnostics_info = system_manager.diagnostics_summary()
         restart_scheduler = app.extensions.get("restart_scheduler")
         scheduled_restart_list: List[str] = []
         if restart_scheduler:
@@ -542,6 +567,9 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             current_log_level=cfg.logging.level,
             scheduled_restart_list=scheduled_restart_list,
             scheduled_restart_text=scheduled_restart_text,
+            system_overview=overview,
+            storage_info=storage_info,
+            diagnostics_info=diagnostics_info,
         )
 
     @app.route("/system/theme", methods=["POST"])
@@ -711,6 +739,35 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             abort(404)
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
+
+    @app.route("/system/diagnostics", methods=["POST"])
+    @pam_required
+    def system_diagnostics():
+        mode = (request.form.get("mode") or "check").strip().lower()
+        if mode not in {"check", "repair"}:
+            flash("Ungültiger Diagnosenmodus", "danger")
+            return redirect(url_for("system_settings"))
+        try:
+            system_manager.run_diagnostics(mode)
+        except FileNotFoundError:
+            flash("Diagnoseskript wurde nicht gefunden", "danger")
+        except ValueError:
+            flash("Ungültiger Diagnosenmodus", "danger")
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("Konnte Systemdiagnose nicht starten: %s", exc)
+            flash("Systemdiagnose konnte nicht gestartet werden", "danger")
+        else:
+            if mode == "repair":
+                flash(
+                    "Systemdiagnose mit Reparaturversuch gestartet. Fortschritt im Log \"Systemdiagnose\" einsehen.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Systemdiagnose gestartet. Fortschritt im Log \"Systemdiagnose\" einsehen.",
+                    "success",
+                )
+        return redirect(url_for("system_settings"))
 
     @app.route("/playlist/<int:index>/delete", methods=["POST"])
     @pam_required

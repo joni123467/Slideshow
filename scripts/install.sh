@@ -78,7 +78,22 @@ REPO_URL="https://github.com/${REPO_SLUG}.git"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-COMMON_PACKAGES=(git python3 python3-venv python3-pip rsync cifs-utils ffmpeg mpv feh curl ca-certificates x11-xserver-utils)
+COMMON_PACKAGES=(
+  git
+  python3
+  python3-venv
+  python3-pip
+  rsync
+  cifs-utils
+  ffmpeg
+  mpv
+  feh
+  curl
+  ca-certificates
+  x11-xserver-utils
+  smartmontools
+  nvme-cli
+)
 apt-get install -y "${COMMON_PACKAGES[@]}"
 
 determine_latest_branch() {
@@ -176,21 +191,27 @@ cat <<REPO > "$APP_DIR/.install_repo"
 $REPO_SLUG
 REPO
 
-chmod +x "$APP_DIR/scripts/update.sh" "$APP_DIR/scripts/mount_smb.sh" 2>/dev/null || true
+for helper_script in update.sh mount_smb.sh system_diagnostics.sh; do
+  chmod +x "$APP_DIR/scripts/$helper_script" 2>/dev/null || true
+done
 
 SUDOERS_FILE="/etc/sudoers.d/slideshow"
 SYSTEMCTL_BIN="$(command -v systemctl || echo /bin/systemctl)"
 REBOOT_BIN="$(command -v reboot || echo /sbin/reboot)"
 POWEROFF_BIN="$(command -v poweroff || echo /sbin/poweroff)"
+SMARTCTL_BIN="$(command -v smartctl || echo /usr/sbin/smartctl)"
+SYSTEM_DIAG_SCRIPT="$APP_DIR/scripts/system_diagnostics.sh"
 cat <<SUDOERS > "$SUDOERS_FILE"
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/update.sh *
 $USER_NAME ALL=(root) NOPASSWD: $APP_DIR/scripts/mount_smb.sh *
+$USER_NAME ALL=(root) NOPASSWD: $SYSTEM_DIAG_SCRIPT *
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN is-active slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN stop slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart slideshow.service
 $USER_NAME ALL=(root) NOPASSWD: $REBOOT_BIN
 $USER_NAME ALL=(root) NOPASSWD: $POWEROFF_BIN
+$USER_NAME ALL=(root) NOPASSWD: $SMARTCTL_BIN *
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
 

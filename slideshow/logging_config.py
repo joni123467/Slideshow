@@ -129,6 +129,10 @@ def available_logs() -> Dict[str, dict]:
         "label": "Update-Protokoll",
         "path": LOG_DIR / "update.log",
     }
+    result["diagnostics"] = {
+        "label": "Systemdiagnose",
+        "path": LOG_DIR / "diagnostics.log",
+    }
     return result
 
 
