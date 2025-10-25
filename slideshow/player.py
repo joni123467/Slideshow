@@ -489,6 +489,33 @@ class PlayerService:
         if side in self._previous_images:
             self._previous_images[side] = None
 
+    def _handle_media_load_failure(
+        self,
+        side: str,
+        label: Optional[str],
+        message: Optional[str],
+        *,
+        source: Optional[str] = None,
+        media_path: Optional[str] = None,
+        media_type: Optional[str] = None,
+    ) -> None:
+        base_label = label or f"Display {side}"
+        if message:
+            display_label = f"{base_label} ({message})"
+        else:
+            display_label = base_label
+        set_state(
+            display_label,
+            "error",
+            side=side,
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            source=source,
+            media_path=media_path,
+            media_type=media_type,
+            preview_path=None,
+        )
+
     def _should_log_controller_unavailable(self, side: str, reason: str) -> bool:
         last_reason = self._controller_backoff_logged.get(side)
         if last_reason == reason:
@@ -645,6 +672,20 @@ class PlayerService:
                 self._wait_for_controller_retry(side)
                 return
             if not controller.load_file(path):
+                failure = getattr(controller, "last_failure", None)
+                if failure and failure[0] == "load-error":
+                    LOGGER.error(
+                        "Konnte Video %s nicht laden: %s", path, failure[1]
+                    )
+                    self._handle_media_load_failure(
+                        side,
+                        label,
+                        failure[1],
+                        source=source,
+                        media_path=media_path,
+                        media_type="video",
+                    )
+                    return
                 self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
                 self._handle_controller_failure(
                     side,
@@ -749,6 +790,20 @@ class PlayerService:
                     self._safe_remove(transition_file)
                 if processed_path != path and self._is_temp_file(processed_path):
                     self._safe_remove(processed_path)
+                failure = getattr(controller, "last_failure", None)
+                if failure and failure[0] == "load-error":
+                    LOGGER.error(
+                        "Konnte Bild %s nicht laden: %s", processed_path, failure[1]
+                    )
+                    self._handle_media_load_failure(
+                        side,
+                        label,
+                        failure[1],
+                        source=source,
+                        media_path=media_path,
+                        media_type=media_kind,
+                    )
+                    return
                 self._handle_controller_failure(
                     side,
                     label,
