@@ -91,6 +91,7 @@ COMMON_PACKAGES=(
   curl
   ca-certificates
   x11-xserver-utils
+  fonts-dejavu-core
   smartmontools
   nvme-cli
 )
