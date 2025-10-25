@@ -48,6 +48,7 @@ class PlayerService:
         self._controller_lock = threading.Lock()
         self._controller_backoff_until: Dict[str, float] = {}
         self._controller_backoff_reason: Dict[str, str] = {}
+        self._controller_backoff_logged: Dict[str, str] = {}
         self._mpv_args = self._collect_mpv_args()
 
     def start(self) -> None:
@@ -443,6 +444,7 @@ class PlayerService:
         delay = max(5.0, CONTROLLER_RETRY_SECONDS)
         self._controller_backoff_until[side] = time.monotonic() + delay
         self._controller_backoff_reason[side] = reason
+        self._controller_backoff_logged.pop(side, None)
         LOGGER.warning(
             "mpv-Controller für %s vorübergehend deaktiviert (%s). Neuer Versuch in %ds",
             side,
@@ -454,6 +456,7 @@ class PlayerService:
         had_backoff = side in self._controller_backoff_until
         self._controller_backoff_until.pop(side, None)
         self._controller_backoff_reason.pop(side, None)
+        self._controller_backoff_logged.pop(side, None)
         if recovered and had_backoff:
             LOGGER.info("mpv-Controller für %s wieder verfügbar", side)
 
@@ -486,6 +489,25 @@ class PlayerService:
         if side in self._previous_images:
             self._previous_images[side] = None
 
+    def _should_log_controller_unavailable(self, side: str, reason: str) -> bool:
+        last_reason = self._controller_backoff_logged.get(side)
+        if last_reason == reason:
+            return False
+        self._controller_backoff_logged[side] = reason
+        return True
+
+    def _wait_for_controller_retry(self, side: str) -> None:
+        backoff_until = self._controller_backoff_until.get(side)
+        if not backoff_until:
+            return
+        while not self._stop.is_set():
+            if self._reload.is_set() or self._info_manual.is_set():
+                break
+            remaining = backoff_until - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 1.0))
+
     def _stop_controller(self, side: str) -> None:
         with self._controller_lock:
             controller = self._controllers.pop(side, None)
@@ -495,6 +517,7 @@ class PlayerService:
             self._previous_images[side] = None
         self._controller_backoff_until.pop(side, None)
         self._controller_backoff_reason.pop(side, None)
+        self._controller_backoff_logged.pop(side, None)
 
     def _stop_all_controllers(self) -> None:
         with self._controller_lock:
@@ -711,7 +734,7 @@ class PlayerService:
             controller = self._controller_for_side(side, geometry)
             if not controller:
                 reason = self._controller_backoff_reason.get(side)
-                if reason:
+                if reason and self._should_log_controller_unavailable(side, reason):
                     LOGGER.debug(
                         "mpv-Controller für %s nicht verfügbar (%s)", side, reason
                     )
@@ -731,6 +754,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type=media_kind,
                 )
+                self._wait_for_controller_retry(side)
                 return
             controller.set_property("image-display-duration", display_duration)
             hold_for_info = media_kind == "info"
