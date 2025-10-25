@@ -642,6 +642,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type="video",
                 )
+                self._wait_for_controller_retry(side)
                 return
             if not controller.load_file(path):
                 self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
@@ -652,6 +653,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type="video",
                 )
+                self._wait_for_controller_retry(side)
                 return
             finished = controller.wait_until_idle(self._should_interrupt)
             if not finished and self._should_interrupt():
@@ -772,6 +774,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type=media_kind,
                 )
+                self._wait_for_controller_retry(side)
                 return
             if transition_file:
                 self._safe_remove(transition_file)
