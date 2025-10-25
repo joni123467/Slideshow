@@ -1020,7 +1020,8 @@ class PlayerService:
     def _collect_mpv_args(self) -> List[str]:
         unique_args: List[str] = []
         seen = set()
-        has_cursor_option = False
+        has_cursor_autohide = False
+        has_cursor_setting = False
         for arg in itertools.chain(
             self.config.playback.video_player_args,
             self.config.playback.image_viewer_args,
@@ -1030,13 +1031,17 @@ class PlayerService:
                 continue
             lower = normalized.lower()
             if lower == "--cursor-autohide" or lower.startswith("--cursor-autohide="):
-                has_cursor_option = True
+                has_cursor_autohide = True
+            if lower == "--cursor" or lower.startswith("--cursor="):
+                has_cursor_setting = True
             if normalized not in seen:
                 seen.add(normalized)
                 unique_args.append(normalized)
 
-        if not has_cursor_option:
+        if not has_cursor_autohide:
             unique_args.insert(0, "--cursor-autohide=always")
+        if not has_cursor_setting:
+            unique_args.insert(0, "--cursor=no")
 
         return unique_args
 
