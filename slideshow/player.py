@@ -22,6 +22,8 @@ from .mpv_controller import MpvController
 
 LOGGER = logging.getLogger(__name__)
 
+CONTROLLER_RETRY_SECONDS = 15.0
+
 
 class PlayerService:
     """Steuert die Wiedergabe von Bildern und Videos inklusive Splitscreen."""
@@ -44,6 +46,9 @@ class PlayerService:
         self._temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="slideshow-display-"))
         self._controllers: Dict[str, MpvController] = {}
         self._controller_lock = threading.Lock()
+        self._controller_backoff_until: Dict[str, float] = {}
+        self._controller_backoff_reason: Dict[str, str] = {}
+        self._controller_backoff_logged: Dict[str, str] = {}
         self._mpv_args = self._collect_mpv_args()
 
     def start(self) -> None:
@@ -391,6 +396,13 @@ class PlayerService:
     ) -> Optional[MpvController]:
         if not self._uses_mpv():
             return None
+        retrying = False
+        backoff_until = self._controller_backoff_until.get(side)
+        if backoff_until:
+            now = time.monotonic()
+            if now < backoff_until:
+                return None
+            retrying = True
         to_stop: Optional[MpvController] = None
         created = False
         with self._controller_lock:
@@ -410,14 +422,91 @@ class PlayerService:
         if created:
             if not controller.start():
                 LOGGER.error("Konnte mpv-Controller für %s nicht starten", side)
+                self._record_controller_backoff(side, "Start fehlgeschlagen")
                 with self._controller_lock:
                     stored = self._controllers.get(side)
                     if stored is controller:
                         self._controllers.pop(side, None)
                 return None
         else:
-            controller.ensure_running()
+            if not controller.ensure_running():
+                LOGGER.error("mpv-Controller für %s reagiert nicht", side)
+                self._record_controller_backoff(side, "Prozess nicht verfügbar")
+                with self._controller_lock:
+                    stored = self._controllers.get(side)
+                    if stored is controller:
+                        self._controllers.pop(side, None)
+                return None
+        self._clear_controller_backoff(side, recovered=retrying)
         return controller
+
+    def _record_controller_backoff(self, side: str, reason: str) -> None:
+        delay = max(5.0, CONTROLLER_RETRY_SECONDS)
+        self._controller_backoff_until[side] = time.monotonic() + delay
+        self._controller_backoff_reason[side] = reason
+        self._controller_backoff_logged.pop(side, None)
+        LOGGER.warning(
+            "mpv-Controller für %s vorübergehend deaktiviert (%s). Neuer Versuch in %ds",
+            side,
+            reason,
+            int(delay),
+        )
+
+    def _clear_controller_backoff(self, side: str, *, recovered: bool = False) -> None:
+        had_backoff = side in self._controller_backoff_until
+        self._controller_backoff_until.pop(side, None)
+        self._controller_backoff_reason.pop(side, None)
+        self._controller_backoff_logged.pop(side, None)
+        if recovered and had_backoff:
+            LOGGER.info("mpv-Controller für %s wieder verfügbar", side)
+
+    def _handle_controller_failure(
+        self,
+        side: str,
+        label: Optional[str],
+        *,
+        source: Optional[str] = None,
+        media_path: Optional[str] = None,
+        media_type: Optional[str] = None,
+    ) -> None:
+        reason = self._controller_backoff_reason.get(side)
+        message = label or f"Display {side}"
+        if reason:
+            display_label = f"{message} ({reason})"
+        else:
+            display_label = message
+        set_state(
+            display_label,
+            "error",
+            side=side,
+            info_screen=False,
+            info_manual=self._info_manual.is_set(),
+            source=source,
+            media_path=media_path,
+            media_type=media_type,
+            preview_path=None,
+        )
+        if side in self._previous_images:
+            self._previous_images[side] = None
+
+    def _should_log_controller_unavailable(self, side: str, reason: str) -> bool:
+        last_reason = self._controller_backoff_logged.get(side)
+        if last_reason == reason:
+            return False
+        self._controller_backoff_logged[side] = reason
+        return True
+
+    def _wait_for_controller_retry(self, side: str) -> None:
+        backoff_until = self._controller_backoff_until.get(side)
+        if not backoff_until:
+            return
+        while not self._stop.is_set():
+            if self._reload.is_set() or self._info_manual.is_set():
+                break
+            remaining = backoff_until - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 1.0))
 
     def _stop_controller(self, side: str) -> None:
         with self._controller_lock:
@@ -426,6 +515,9 @@ class PlayerService:
             controller.stop()
         if side in self._previous_images:
             self._previous_images[side] = None
+        self._controller_backoff_until.pop(side, None)
+        self._controller_backoff_reason.pop(side, None)
+        self._controller_backoff_logged.pop(side, None)
 
     def _stop_all_controllers(self) -> None:
         with self._controller_lock:
@@ -435,6 +527,8 @@ class PlayerService:
             controller.stop()
         self._previous_images["primary"] = None
         self._previous_images["secondary"] = None
+        self._controller_backoff_until.clear()
+        self._controller_backoff_reason.clear()
 
     def _state_side(self, side: str) -> str:
         return "primary" if side == "left" else "secondary"
@@ -531,12 +625,39 @@ class PlayerService:
         if player == "mpv":
             controller = self._controller_for_side(side, geometry)
             if not controller:
-                LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
-            else:
-                if controller.load_file(path):
-                    finished = controller.wait_until_idle(self._should_interrupt)
-                    if not finished and self._should_interrupt():
-                        controller.stop_playback()
+                reason = self._controller_backoff_reason.get(side)
+                if reason:
+                    LOGGER.debug(
+                        "mpv-Controller für %s nicht verfügbar (%s)", side, reason
+                    )
+                else:
+                    reason = "unbekannter Fehler"
+                    LOGGER.warning(
+                        "mpv-Controller für %s nicht verfügbar (%s)", side, reason
+                    )
+                self._handle_controller_failure(
+                    side,
+                    label,
+                    source=source,
+                    media_path=media_path,
+                    media_type="video",
+                )
+                self._wait_for_controller_retry(side)
+                return
+            if not controller.load_file(path):
+                self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
+                self._handle_controller_failure(
+                    side,
+                    label,
+                    source=source,
+                    media_path=media_path,
+                    media_type="video",
+                )
+                self._wait_for_controller_retry(side)
+                return
+            finished = controller.wait_until_idle(self._should_interrupt)
+            if not finished and self._should_interrupt():
+                controller.stop_playback()
         elif player == "omxplayer":
             args = ["omxplayer", "--no-keys", str(path)]
             subprocess.run(args, check=False)
@@ -614,36 +735,66 @@ class PlayerService:
         if viewer == "mpv":
             controller = self._controller_for_side(side, geometry)
             if not controller:
-                LOGGER.error("mpv-Controller für %s nicht verfügbar", side)
-            else:
-                controller.set_property("image-display-duration", display_duration)
-                hold_for_info = media_kind == "info"
-                manual_interrupts_allowed = not hold_for_info
-                if controller.load_file(processed_path):
-                    if transition_file:
-                        self._safe_remove(transition_file)
-                    end_time = time.time() + display_duration
-                    interrupted = False
-                    while time.time() < end_time:
-                        if (
-                            self._stop.is_set()
-                            or self._reload.is_set()
-                            or (
-                                manual_interrupts_allowed
-                                and self._info_manual.is_set()
-                            )
-                        ):
-                            controller.stop_playback()
-                            interrupted = True
-                            break
-                        time.sleep(0.2)
-                    if hold_for_info and not interrupted:
-                        try:
-                            controller.set_property("pause", True)
-                        except Exception:
-                            LOGGER.debug("Konnte mpv nicht pausieren, um Infobildschirm zu halten")
-                elif transition_file:
+                reason = self._controller_backoff_reason.get(side)
+                if reason and self._should_log_controller_unavailable(side, reason):
+                    LOGGER.debug(
+                        "mpv-Controller für %s nicht verfügbar (%s)", side, reason
+                    )
+                else:
+                    reason = "unbekannter Fehler"
+                    LOGGER.warning(
+                        "mpv-Controller für %s nicht verfügbar (%s)", side, reason
+                    )
+                if transition_file:
                     self._safe_remove(transition_file)
+                if processed_path != path and self._is_temp_file(processed_path):
+                    self._safe_remove(processed_path)
+                self._handle_controller_failure(
+                    side,
+                    label,
+                    source=source,
+                    media_path=media_path,
+                    media_type=media_kind,
+                )
+                self._wait_for_controller_retry(side)
+                return
+            controller.set_property("image-display-duration", display_duration)
+            hold_for_info = media_kind == "info"
+            manual_interrupts_allowed = not hold_for_info
+            if not controller.load_file(processed_path):
+                if transition_file:
+                    self._safe_remove(transition_file)
+                if processed_path != path and self._is_temp_file(processed_path):
+                    self._safe_remove(processed_path)
+                self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
+                self._handle_controller_failure(
+                    side,
+                    label,
+                    source=source,
+                    media_path=media_path,
+                    media_type=media_kind,
+                )
+                self._wait_for_controller_retry(side)
+                return
+            if transition_file:
+                self._safe_remove(transition_file)
+            end_time = time.time() + display_duration
+            interrupted = False
+            while time.time() < end_time:
+                if (
+                    self._stop.is_set()
+                    or self._reload.is_set()
+                    or (manual_interrupts_allowed and self._info_manual.is_set())
+                ):
+                    controller.stop_playback()
+                    interrupted = True
+                    break
+                time.sleep(0.2)
+            if hold_for_info and not interrupted:
+                try:
+                    controller.set_property("pause", True)
+                except Exception:
+                    LOGGER.debug("Konnte mpv nicht pausieren, um Infobildschirm zu halten")
         elif viewer == "feh":
             cmd = [
                 viewer,
@@ -869,7 +1020,8 @@ class PlayerService:
     def _collect_mpv_args(self) -> List[str]:
         unique_args: List[str] = []
         seen = set()
-        has_cursor_option = False
+        has_cursor_autohide = False
+        has_cursor_setting = False
         for arg in itertools.chain(
             self.config.playback.video_player_args,
             self.config.playback.image_viewer_args,
@@ -879,13 +1031,17 @@ class PlayerService:
                 continue
             lower = normalized.lower()
             if lower == "--cursor-autohide" or lower.startswith("--cursor-autohide="):
-                has_cursor_option = True
+                has_cursor_autohide = True
+            if lower == "--cursor" or lower.startswith("--cursor="):
+                has_cursor_setting = True
             if normalized not in seen:
                 seen.add(normalized)
                 unique_args.append(normalized)
 
-        if not has_cursor_option:
+        if not has_cursor_autohide:
             unique_args.insert(0, "--cursor-autohide=always")
+        if not has_cursor_setting:
+            unique_args.insert(0, "--cursor=no")
 
         return unique_args
 

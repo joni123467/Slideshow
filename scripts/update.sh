@@ -115,11 +115,25 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
-REQUIRED_PACKAGES=(smartmontools nvme-cli)
+COMMON_PACKAGES=(
+  git
+  python3
+  python3-venv
+  python3-pip
+  rsync
+  cifs-utils
+  ffmpeg
+  mpv
+  feh
+  curl
+  ca-certificates
+  x11-xserver-utils
+  fonts-dejavu-core
+  smartmontools
+  nvme-cli
+)
 apt-get update
-if [[ ${#REQUIRED_PACKAGES[@]} -gt 0 ]]; then
-  apt-get install -y --no-install-recommends "${REQUIRED_PACKAGES[@]}"
-fi
+apt-get install -y --no-install-recommends "${COMMON_PACKAGES[@]}"
 
 if [[ -z "$BRANCH" && -f "$BRANCH_FILE" ]]; then
   BRANCH=$(cat "$BRANCH_FILE")

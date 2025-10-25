@@ -46,15 +46,16 @@
       <label>Rotation (°)
         <input type="number" name="image_rotation" min="0" max="359" value="{{ config.playback.image_rotation }}" />
       </label>
-      <label>Übergang
-        <select name="transition_type">
+      <label class="field-disabled">Übergang
+        <select name="transition_type" disabled aria-disabled="true">
           {% for value, label in transition_options %}
           <option value="{{ value }}" {% if config.playback.transition_type == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+        <small class="muted field-disabled__note">Übergänge sind aktuell deaktiviert.</small>
       </label>
-      <label>Übergangsdauer (Sekunden)
-        <input type="number" step="0.1" min="0.2" max="10" name="transition_duration" value="{{ config.playback.transition_duration }}" />
+      <label class="field-disabled">Übergangsdauer (Sekunden)
+        <input type="number" step="0.1" min="0.2" max="10" name="transition_duration" value="{{ config.playback.transition_duration }}" disabled aria-disabled="true" />
       </label>
       {% set current_resolution = config.playback.display_resolution %}
       {% set show_custom = current_resolution not in resolution_values and (not detected_resolution or current_resolution != detected_resolution) %}

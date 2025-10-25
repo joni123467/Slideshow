@@ -753,6 +753,23 @@ form {
   gap: 0.35rem;
 }
 
+.grid-form label.field-disabled {
+  opacity: 0.6;
+}
+
+.grid-form label.field-disabled select,
+.grid-form label.field-disabled input[type="number"] {
+  pointer-events: none;
+  cursor: not-allowed;
+  background: var(--surface-strong);
+  color: var(--muted);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.field-disabled__note {
+  font-size: 0.85rem;
+}
+
 .grid-form fieldset {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
