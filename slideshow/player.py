@@ -1040,10 +1040,49 @@ class PlayerService:
 
         if not has_cursor_autohide:
             unique_args.insert(0, "--cursor-autohide=always")
-        if not has_cursor_setting:
+        if not has_cursor_setting and self._mpv_supports_cursor_option():
             unique_args.insert(0, "--cursor=no")
 
         return unique_args
+
+    _mpv_cursor_support: Optional[bool] = None
+    _mpv_cursor_lock = threading.Lock()
+
+    @classmethod
+    def _mpv_supports_cursor_option(cls) -> bool:
+        with cls._mpv_cursor_lock:
+            if cls._mpv_cursor_support is not None:
+                return cls._mpv_cursor_support
+            try:
+                result = subprocess.run(
+                    ["mpv", "--no-config", "--list-options"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                    text=True,
+                    timeout=5,
+                )
+            except (FileNotFoundError, subprocess.SubprocessError, OSError):
+                cls._mpv_cursor_support = False
+                LOGGER.debug(
+                    "Konnte mpv-Optionen nicht abfragen, Mauszeiger-Flag wird übersprungen"
+                )
+                return False
+            output = result.stdout or ""
+            supports = False
+            for line in output.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("--cursor=") or stripped == "--cursor":
+                    supports = True
+                    break
+            cls._mpv_cursor_support = supports
+            if not supports:
+                LOGGER.debug(
+                    "mpv unterstützt --cursor nicht, verwende nur Autohide für den Zeiger"
+                )
+            return supports
 
     def _should_interrupt(self) -> bool:
         return (
