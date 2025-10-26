@@ -14,6 +14,7 @@
   --status-ok: #34d399;
   --status-down: #f87171;
   --status-info: #38bdf8;
+  --status-warning: #facc15;
   --status-ok-bg: rgba(52, 211, 153, 0.18);
   --status-ok-border: rgba(52, 211, 153, 0.4);
   --status-down-bg: rgba(248, 113, 113, 0.18);
@@ -41,6 +42,7 @@
   --status-ok: #16a34a;
   --status-down: #dc2626;
   --status-info: #0ea5e9;
+  --status-warning: #d97706;
   --status-ok-bg: rgba(22, 163, 74, 0.16);
   --status-ok-border: rgba(22, 163, 74, 0.4);
   --status-down-bg: rgba(220, 38, 38, 0.16);
@@ -68,6 +70,7 @@
   --status-ok: #34d399;
   --status-down: #f87171;
   --status-info: #38bdf8;
+  --status-warning: #facc15;
   --status-ok-bg: rgba(52, 211, 153, 0.18);
   --status-ok-border: rgba(52, 211, 153, 0.4);
   --status-down-bg: rgba(248, 113, 113, 0.18);
@@ -95,6 +98,7 @@
   --status-ok: #4ade80;
   --status-down: #fb7185;
   --status-info: #38bdf8;
+  --status-warning: #facc15;
   --status-ok-bg: rgba(74, 222, 128, 0.22);
   --status-ok-border: rgba(74, 222, 128, 0.45);
   --status-down-bg: rgba(251, 113, 133, 0.22);
@@ -295,20 +299,12 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
 }
 
-.network-form {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .network-form fieldset {
   gap: 0.75rem;
 }
 
 .network-form fieldset + fieldset {
   margin-top: 0.25rem;
-}
-
-.network-form .split-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .field-note {
@@ -709,7 +705,7 @@ form {
   margin-bottom: 1rem;
 }
 
-.logs pre {
+.log-output {
   background: var(--surface-alt);
   border-radius: 0.75rem;
   padding: 1rem;
@@ -720,6 +716,47 @@ form {
   font-size: 0.85rem;
   white-space: pre-wrap;
   border: 1px solid var(--border);
+}
+
+.log-line {
+  display: block;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.log-line + .log-line {
+  margin-top: 0.1rem;
+}
+
+.log-line--debug {
+  color: var(--muted);
+}
+
+.log-line--info,
+.log-line--notice {
+  color: var(--status-info);
+}
+
+.log-line--success,
+.log-line--ok {
+  color: var(--status-ok);
+}
+
+.log-line--warning,
+.log-line--warn {
+  color: var(--status-warning);
+  font-weight: 600;
+}
+
+.log-line--error,
+.log-line--exception {
+  color: var(--status-down);
+}
+
+.log-line--critical,
+.log-line--alert {
+  color: var(--status-down);
+  font-weight: 700;
 }
 
 .table-actions {
@@ -753,6 +790,23 @@ form {
   gap: 0.35rem;
 }
 
+.grid-form label.field-disabled {
+  opacity: 0.6;
+}
+
+.grid-form label.field-disabled select,
+.grid-form label.field-disabled input[type="number"] {
+  pointer-events: none;
+  cursor: not-allowed;
+  background: var(--surface-strong);
+  color: var(--muted);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.field-disabled__note {
+  font-size: 0.85rem;
+}
+
 .grid-form fieldset {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -771,6 +825,20 @@ form {
   justify-self: start;
   width: auto;
   max-width: 280px;
+}
+
+.grid-form.network-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.grid-form.network-form .split-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.grid-form.network-form > button,
+.grid-form.network-form > .button-link {
+  justify-self: stretch;
+  max-width: none;
 }
 
 .split-grid {

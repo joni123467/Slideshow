@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pathlib
+import tempfile
 from typing import Iterable, List, Optional, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
@@ -133,10 +134,32 @@ class InfoScreen:
             draw.text((margin, y), line, font=text_font, fill="#e2ebff")
             y += text_height + line_gap
 
-        output_path = cached_path
-        image.save(output_path, format="PNG")
+        temp_path: Optional[pathlib.Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "wb", suffix=".png", prefix="info-", dir=self.output_dir, delete=False
+            ) as handle:
+                temp_path = pathlib.Path(handle.name)
+                image.save(handle, format="PNG")
+        except Exception:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+            raise
+        if temp_path is None:
+            raise RuntimeError("Temporäre Datei für Infobildschirm konnte nicht erstellt werden")
+        try:
+            temp_path.replace(cached_path)
+        except Exception:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+            raise
         self._last_signature = signature
-        return output_path
+        return cached_path
 
     def _wrap_lines(
         self,
