@@ -345,7 +345,7 @@
               <button type="submit" id="log-delete-button" class="danger" disabled>Log löschen</button>
             </form>
           </div>
-          <pre id="log-output">Wähle ein Log aus, um den Inhalt zu laden.</pre>
+          <div id="log-output" class="log-output">Wähle ein Log aus, um den Inhalt zu laden.</div>
         </article>
       </section>
       <section
@@ -518,6 +518,24 @@
     const baseUrl = "{{ url_for('show_log', name='__LOG__') }}";
     const downloadBase = "{{ url_for('download_log', name='__LOG__') }}";
     const deleteBase = "{{ url_for('delete_log', name='__LOG__') }}";
+    const levelClassMap = {
+      critical: 'log-line--critical',
+      alert: 'log-line--critical',
+      emergency: 'log-line--critical',
+      fatal: 'log-line--critical',
+      crit: 'log-line--critical',
+      error: 'log-line--error',
+      err: 'log-line--error',
+      exception: 'log-line--error',
+      warning: 'log-line--warning',
+      warn: 'log-line--warning',
+      info: 'log-line--info',
+      notice: 'log-line--info',
+      success: 'log-line--success',
+      ok: 'log-line--success',
+      debug: 'log-line--debug',
+      trace: 'log-line--debug',
+    };
 
     function updateLogActions() {
       if (!select) {
@@ -544,6 +562,41 @@
       }
     }
 
+    function renderLog(text) {
+      if (!output) {
+        return;
+      }
+      const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = normalized.split('\n');
+      if (lines.length && lines[lines.length - 1] === '') {
+        lines.pop();
+      }
+      lines.reverse();
+      if (!lines.length) {
+        output.textContent = 'Keine Einträge vorhanden.';
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      lines.forEach((line) => {
+        const lineElement = document.createElement('div');
+        lineElement.classList.add('log-line');
+        const levelMatch =
+          line.match(/\]\s+([A-Z]+)/) || line.match(/^([A-Z]+)/);
+        if (levelMatch && levelMatch[1]) {
+          const key = levelMatch[1].toLowerCase();
+          const mapped = levelClassMap[key] || (key.startsWith('warn') ? levelClassMap.warning : null);
+          if (mapped) {
+            lineElement.classList.add(mapped);
+          }
+        }
+        lineElement.textContent = line || '\u00A0';
+        fragment.appendChild(lineElement);
+      });
+      output.innerHTML = '';
+      output.appendChild(fragment);
+      output.scrollTop = 0;
+    }
+
     async function loadLog() {
       if (!select || !output) {
         return;
@@ -563,7 +616,7 @@
           return;
         }
         const text = await response.text();
-        output.textContent = text || 'Keine Einträge vorhanden.';
+        renderLog(text);
       } catch (error) {
         output.textContent = 'Fehler beim Abrufen des Logs.';
       }
