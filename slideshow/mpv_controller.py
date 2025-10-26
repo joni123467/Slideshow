@@ -33,6 +33,7 @@ class MpvController:
         self._socket_path: Optional[pathlib.Path] = None
         self._lock = threading.Lock()
         self._last_loaded: Optional[pathlib.Path] = None
+        self._last_failure: Optional[tuple[str, str]] = None
 
     # Lebenszyklus -----------------------------------------------------
     def start(self) -> bool:
@@ -117,9 +118,13 @@ class MpvController:
     # Befehle ----------------------------------------------------------
     def load_file(self, path: pathlib.Path) -> bool:
         if not self.ensure_running():
+            self._last_failure = ("startup", "mpv konnte nicht gestartet werden")
             return False
         if self._load_file_internal(path):
             return True
+        failure = self._last_failure
+        if failure and failure[0] == "load-error":
+            return False
         # Nur neu starten, wenn die Instanz wirklich nicht mehr läuft oder der
         # IPC-Socket verschwunden ist. Ein Neustart, während mpv noch aktiv ist,
         # führt sonst zu einem kurzen schwarzen Bildschirm.
@@ -127,12 +132,18 @@ class MpvController:
             time.sleep(0.5)
             if self._load_file_internal(path):
                 return True
-            LOGGER.warning("mpv reagiert nicht, Befehl wird übersprungen")
-            return False
+            failure = self._last_failure
+            if failure and failure[0] == "load-error":
+                return False
+            LOGGER.warning("mpv reagiert nicht, Prozess wird neu gestartet")
+            if not self._restart_process():
+                return False
+            if self._last_loaded and self._last_loaded.exists():
+                self._load_file_internal(self._last_loaded)
+            return self._load_file_internal(path)
         LOGGER.warning("mpv scheint beendet zu sein, Neustart wird versucht")
         if not self._restart_process():
             return False
-        # Anzeige möglichst schnell wiederherstellen
         if self._last_loaded and self._last_loaded.exists():
             self._load_file_internal(self._last_loaded)
         return self._load_file_internal(path)
@@ -171,6 +182,16 @@ class MpvController:
                 # Bei aktivem keep-open signalisiert pause=True einen Abschluss.
                 return True
             time.sleep(0.2)
+
+    def reload_last_successful(self) -> bool:
+        """Lädt die zuletzt erfolgreich wiedergegebene Datei erneut."""
+
+        last = self._last_loaded
+        if not last or not last.exists():
+            return False
+        if not self.ensure_running():
+            return False
+        return self._load_file_internal(last)
 
     # Interne Helfer ---------------------------------------------------
     def _command(self, payload) -> Optional[dict]:
@@ -236,15 +257,32 @@ class MpvController:
         response = self._command(["loadfile", str(path), "replace"])
         if isinstance(response, dict) and response.get("error") == "success":
             self._last_loaded = path
+            self._last_failure = None
             # Nach einem erfolgreichen Load sicherstellen, dass die Instanz
             # nicht im Pausenmodus verharrt.
             self._command(["set_property", "pause", False])
             return True
+        if isinstance(response, dict):
+            error = response.get("error")
+            data = response.get("data")
+            detail = data if isinstance(data, str) else ""
+            message = detail or (error or "unbekannter Fehler")
+            self._last_failure = ("load-error", message)
+            LOGGER.debug("mpv meldet Fehler beim Laden von %s: %s", path, message)
+        else:
+            self._last_failure = ("ipc", "keine Antwort von mpv")
         return False
 
     def _restart_process(self) -> bool:
         self.stop()
-        return self.start()
+        restarted = self.start()
+        if not restarted:
+            self._last_failure = ("startup", "mpv konnte nicht neu gestartet werden")
+        return restarted
+
+    @property
+    def last_failure(self) -> Optional[tuple[str, str]]:
+        return self._last_failure
 
     def _get_property_bool(self, name: str) -> bool:
         response = self._command(["get_property", name])
