@@ -486,8 +486,6 @@ class PlayerService:
             media_type=media_type,
             preview_path=None,
         )
-        if side in self._previous_images:
-            self._previous_images[side] = None
 
     def _handle_media_load_failure(
         self,
@@ -515,6 +513,26 @@ class PlayerService:
             media_type=media_type,
             preview_path=None,
         )
+
+    def _restore_last_frame(
+        self, controller: Optional[MpvController], side: str
+    ) -> None:
+        if not controller:
+            return
+        try:
+            restored = controller.reload_last_successful()
+        except Exception:  # pragma: no cover - defensive Logging
+            LOGGER.debug(
+                "Konnte letzte erfolgreiche Wiedergabe für %s nicht wiederherstellen",
+                side,
+                exc_info=True,
+            )
+            return
+        if restored:
+            LOGGER.debug(
+                "Letzte erfolgreiche Wiedergabe für %s nach Fehler erneut aktiviert",
+                side,
+            )
 
     def _should_log_controller_unavailable(self, side: str, reason: str) -> bool:
         last_reason = self._controller_backoff_logged.get(side)
@@ -685,6 +703,7 @@ class PlayerService:
                         media_path=media_path,
                         media_type="video",
                     )
+                    self._restore_last_frame(controller, side)
                     return
                 self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
                 self._handle_controller_failure(
@@ -694,6 +713,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type="video",
                 )
+                self._restore_last_frame(controller, side)
                 self._wait_for_controller_retry(side)
                 return
             finished = controller.wait_until_idle(self._should_interrupt)
@@ -742,8 +762,13 @@ class PlayerService:
         display_duration = requested_duration
         if transition_duration > 0:
             display_duration = max(1.0, requested_duration - transition_duration)
-        if previous and previous != processed_path and self._is_temp_file(previous):
-            self._safe_remove(previous)
+        previous_temp_to_remove: Optional[pathlib.Path] = None
+        if (
+            previous
+            and previous != processed_path
+            and self._is_temp_file(previous)
+        ):
+            previous_temp_to_remove = previous
 
         clear_secondary = side == "primary" and not self.config.playback.splitscreen_enabled
         label = display_label or str(path)
@@ -790,6 +815,24 @@ class PlayerService:
                     self._safe_remove(transition_file)
                 if processed_path != path and self._is_temp_file(processed_path):
                     self._safe_remove(processed_path)
+                self._handle_controller_failure(
+                    side,
+                    label,
+                    source=source,
+                    media_path=media_path,
+                    media_type=media_kind,
+                )
+                self._restore_last_frame(controller, side)
+                self._wait_for_controller_retry(side)
+                return
+            controller.set_property("image-display-duration", display_duration)
+            hold_for_info = media_kind == "info"
+            manual_interrupts_allowed = not hold_for_info
+            if not controller.load_file(processed_path):
+                if transition_file:
+                    self._safe_remove(transition_file)
+                if processed_path != path and self._is_temp_file(processed_path):
+                    self._safe_remove(processed_path)
                 failure = getattr(controller, "last_failure", None)
                 if failure and failure[0] == "load-error":
                     LOGGER.error(
@@ -803,24 +846,8 @@ class PlayerService:
                         media_path=media_path,
                         media_type=media_kind,
                     )
+                    self._restore_last_frame(controller, side)
                     return
-                self._handle_controller_failure(
-                    side,
-                    label,
-                    source=source,
-                    media_path=media_path,
-                    media_type=media_kind,
-                )
-                self._wait_for_controller_retry(side)
-                return
-            controller.set_property("image-display-duration", display_duration)
-            hold_for_info = media_kind == "info"
-            manual_interrupts_allowed = not hold_for_info
-            if not controller.load_file(processed_path):
-                if transition_file:
-                    self._safe_remove(transition_file)
-                if processed_path != path and self._is_temp_file(processed_path):
-                    self._safe_remove(processed_path)
                 self._record_controller_backoff(side, "Ladevorgang fehlgeschlagen")
                 self._handle_controller_failure(
                     side,
@@ -829,6 +856,7 @@ class PlayerService:
                     media_path=media_path,
                     media_type=media_kind,
                 )
+                self._restore_last_frame(controller, side)
                 self._wait_for_controller_retry(side)
                 return
             if transition_file:
@@ -884,6 +912,9 @@ class PlayerService:
             self._previous_images[side] = processed_path
         else:
             self._previous_images[side] = path
+
+        if previous_temp_to_remove and previous_temp_to_remove.exists():
+            self._safe_remove(previous_temp_to_remove)
 
     def _play_transition(
         self,

@@ -183,6 +183,16 @@ class MpvController:
                 return True
             time.sleep(0.2)
 
+    def reload_last_successful(self) -> bool:
+        """Lädt die zuletzt erfolgreich wiedergegebene Datei erneut."""
+
+        last = self._last_loaded
+        if not last or not last.exists():
+            return False
+        if not self.ensure_running():
+            return False
+        return self._load_file_internal(last)
+
     # Interne Helfer ---------------------------------------------------
     def _command(self, payload) -> Optional[dict]:
         with self._lock:
