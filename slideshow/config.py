@@ -9,12 +9,14 @@ import os
 import pathlib
 import threading
 import zipfile
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, TypeVar
 
 import yaml
 
 LOGGER = logging.getLogger(__name__)
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+
+T = TypeVar("T")
 
 
 def _determine_data_dir() -> pathlib.Path:
@@ -206,6 +208,21 @@ def normalize_restart_times(raw) -> Tuple[List[str], List[str]]:
     return ordered, invalid
 
 
+def _filter_dataclass_kwargs(cls: Type[T], raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Entfernt unbekannte Felder aus einer Konfigurationssektion."""
+
+    allowed = {field.name for field in dataclasses.fields(cls)}
+    filtered: Dict[str, Any] = {}
+    for key, value in raw.items():
+        if key in allowed:
+            filtered[key] = value
+        else:
+            LOGGER.debug(
+                "Ignoriere unbekanntes Feld %s für %s", key, cls.__name__
+            )
+    return filtered
+
+
 @dataclasses.dataclass
 class MediaSource:
     name: str
@@ -334,6 +351,20 @@ class AppConfig:
             )
         maintenance_raw["auto_restart_times"] = restart_times
 
+        legacy_auto_reboot = maintenance_raw.pop("auto_reboot_enabled", None)
+        if legacy_auto_reboot is not None:
+            if legacy_auto_reboot and not restart_times:
+                maintenance_raw["auto_restart_times"] = ["04:00"]
+                LOGGER.info(
+                    "maintenance.auto_reboot_enabled ist veraltet – setze geplanten Neustart um 04:00 Uhr. "
+                    "Bitte maintenance.auto_restart_times prüfen."
+                )
+            else:
+                LOGGER.info(
+                    "maintenance.auto_reboot_enabled ist veraltet und wurde ignoriert. "
+                    "Bitte maintenance.auto_restart_times verwenden."
+                )
+
         network_raw = dict(config.get("network") or {})
         network_defaults = DEFAULT_CONFIG["network"]
 
@@ -406,7 +437,7 @@ class AppConfig:
             server=ServerConfig(**config["server"]),
             ui=UIConfig(**ui_raw),
             logging=LoggingConfig(**logging_raw),
-            maintenance=MaintenanceConfig(**maintenance_raw),
+            maintenance=MaintenanceConfig(**_filter_dataclass_kwargs(MaintenanceConfig, maintenance_raw)),
         )
         instance.ensure_local_paths()
         return instance
