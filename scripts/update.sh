@@ -37,6 +37,33 @@ enable_user_linger() {
   fi
 }
 
+ensure_virtualenv() {
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+}
+
+install_python_dependencies() {
+  ensure_virtualenv
+  local python_bin="$VENV_DIR/bin/python"
+  local pip_bin="$VENV_DIR/bin/pip"
+  if [[ ! -x "$pip_bin" && -x "$python_bin" ]]; then
+    "$python_bin" -m ensurepip --upgrade
+    pip_bin="$VENV_DIR/bin/pip"
+  fi
+  if [[ ! -x "$pip_bin" ]]; then
+    echo "Konnte pip im virtuellen Environment nicht finden." >&2
+    return 1
+  fi
+  "$pip_bin" install --upgrade pip setuptools wheel
+  if [[ -f "$APP_DIR/pyproject.toml" ]]; then
+    "$pip_bin" install poetry
+    (cd "$APP_DIR" && "$VENV_DIR/bin/poetry" install --no-root)
+  elif [[ -f "$APP_DIR/requirements.txt" ]]; then
+    "$pip_bin" install -r "$APP_DIR/requirements.txt"
+  fi
+}
+
 determine_run_user() {
   local user=""
   if [[ -f "$RUN_USER_FILE" ]]; then
@@ -183,14 +210,7 @@ for helper_script in mount_smb.sh update.sh system_diagnostics.sh; do
   fi
 done
 
-if [[ -f "$APP_DIR/pyproject.toml" ]]; then
-  "$VENV_DIR/bin/pip" install --upgrade pip
-  "$VENV_DIR/bin/pip" install poetry
-  (cd "$APP_DIR" && "$VENV_DIR/bin/poetry" install --no-root)
-elif [[ -f "$APP_DIR/requirements.txt" ]]; then
-  "$VENV_DIR/bin/pip" install --upgrade pip
-  "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
-fi
+install_python_dependencies
 
 RUN_USER="$(determine_run_user)"
 if [[ -n "$RUN_USER" ]]; then
