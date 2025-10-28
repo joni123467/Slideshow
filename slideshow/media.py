@@ -104,6 +104,22 @@ def _format_cifs_option(key: str, value: Optional[str]) -> Optional[str]:
     return f"{key}={_escape_cifs_option(str(value))}"
 
 
+_PASSWORD_OPTION_PATTERN = re.compile(r"(?i)(password|passwd|pass)=([^,]*)")
+
+
+def _redact_cifs_options(options: str) -> str:
+    """Entfernt vertrauliche Werte aus einer CIFS-Optionszeichenkette."""
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        value = match.group(2)
+        if not value:
+            return f"{prefix}="
+        return f"{prefix}=***"
+
+    return _PASSWORD_OPTION_PATTERN.sub(_replace, options)
+
+
 def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
     """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
 
@@ -363,12 +379,24 @@ class MediaManager:
         if not helper.exists():
             raise FileNotFoundError(f"Mount-Helfer {helper} nicht gefunden")
         cmd = [str(helper)] + list(args)
+        use_sudo = False
         if os.geteuid() != 0:
             sudo = shutil.which("sudo")
             if not sudo:
                 raise PermissionError("sudo ist nicht verfügbar, um den Mount-Helfer aufzurufen")
             cmd = [sudo, "-n"] + cmd
-        LOGGER.debug("Starte Mount-Helfer: %s", " ".join(shlex.quote(part) for part in cmd))
+            use_sudo = True
+        log_cmd: list[str] = []
+        for index, part in enumerate(cmd):
+            if index == len(cmd) - 1 and args and args[0] == "mount":
+                log_cmd.append(_redact_cifs_options(part))
+            else:
+                log_cmd.append(part)
+        LOGGER.debug(
+            "Starte Mount-Helfer%s: %s",
+            " mit sudo" if use_sudo else "",
+            " ".join(shlex.quote(part) for part in log_cmd),
+        )
         result = subprocess.run(cmd, text=True, capture_output=True)
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
@@ -678,6 +706,14 @@ class MediaManager:
             f"{share}/{configured_subpath}" if configured_subpath else share
         )
         LOGGER.info("Mount SMB share %s auf %s", display_share, mount_point)
+        LOGGER.debug(
+            "Vorbereitetes SMB-Mount: share=%s, ziel=%s, username=%s, domain=%s, options=%s",
+            display_share,
+            mount_point,
+            username or "<leer>",
+            domain or "<leer>",
+            _redact_cifs_options(options),
+        )
         try:
             self._run_mount_helper("mount", share, str(mount_point), options, ignore_busy=True)
         except MountAuthenticationError as exc:
