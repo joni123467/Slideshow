@@ -30,6 +30,15 @@ from .config import (
 
 LOGGER = logging.getLogger(__name__)
 
+
+class MountAuthenticationError(RuntimeError):
+    """Fehler, wenn der SMB-Server die Anmeldedaten ablehnt."""
+
+    def __init__(self, returncode: int, message: str):
+        self.returncode = returncode
+        self.raw_message = message
+        super().__init__(f"Mount-Helfer fehlgeschlagen ({returncode}): {message}")
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 IGNORED_EXTENSIONS = {".db", ".ini", ".tmp", ".ds_store"}
@@ -70,6 +79,29 @@ def _normalize_subpath(value: Optional[str]) -> Optional[str]:
         return None
     sanitized = str(value).replace("\\", "/").strip("/")
     return sanitized or None
+
+
+def _escape_cifs_option(value: str) -> str:
+    """Maskiert Sonderzeichen in CIFS-Optionswerten.
+
+    Laut ``mount.cifs(8)`` müssen Kommas und umgekehrte Schrägstriche in
+    Optionswerten mit einem führenden ``\\`` escaped werden, da sie sonst als
+    Trenner interpretiert werden. Zusätzlich müssen doppelte Anführungszeichen
+    escaped werden, da der Mount-Helfer die Optionsliste an ``/bin/mount`` als
+    in Anführungszeichen gesetzten Parameter übergibt und ansonsten die Shell-
+    Quote-Balance verloren geht.
+    """
+
+    escaped = value.replace("\\", "\\\\")
+    escaped = escaped.replace('"', '\\"')
+    escaped = escaped.replace(",", "\\,")
+    return escaped
+
+
+def _format_cifs_option(key: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    return f"{key}={_escape_cifs_option(str(value))}"
 
 
 def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
@@ -342,6 +374,7 @@ class MediaManager:
             stderr = (result.stderr or "").strip()
             stdout = (result.stdout or "").strip()
             message = stderr or stdout or "unbekannter Fehler"
+            normalized = message.lower()
             if ignore_busy and result.returncode == 16:
                 LOGGER.debug(
                     "Mount-Helfer meldete 'busy' (%s), behandle als Erfolg: %s",
@@ -349,6 +382,8 @@ class MediaManager:
                     message,
                 )
                 return result
+            if "mount error(13)" in normalized or "permission denied" in normalized:
+                raise MountAuthenticationError(result.returncode, message)
             raise RuntimeError(f"Mount-Helfer fehlgeschlagen ({result.returncode}): {message}")
         return result
 
@@ -603,7 +638,8 @@ class MediaManager:
         gid = os.getgid()
         vers = source.options.get("vers", "3.1.1")
         vers_option = vers if isinstance(vers, str) and vers.startswith("vers=") else f"vers={vers}"
-        option_parts = ["rw",
+        option_parts = [
+            "rw",
             f"uid={uid}",
             f"gid={gid}",
             "file_mode=0775",
@@ -611,29 +647,50 @@ class MediaManager:
             vers_option,
         ]
         username = source.options.get("username")
-        if username:
-            option_parts.insert(0, f"username={username}")
-            option_parts.insert(1, f"password={password or ''}")
-        elif password:
-            option_parts.insert(0, f"password={password}")
+        formatted_username = _format_cifs_option("username", username) if username else None
+        formatted_password = _format_cifs_option("password", password or "") if password is not None else None
+        if formatted_username:
+            option_parts.insert(0, formatted_username)
+            option_parts.insert(1, formatted_password or _format_cifs_option("password", ""))
+        elif formatted_password:
+            option_parts.insert(0, formatted_password)
         else:
             option_parts.insert(0, "guest")
         domain = source.options.get("domain")
         if domain:
-            option_parts.insert(0, f"domain={domain}")
+            formatted_domain = _format_cifs_option("domain", domain)
+            if formatted_domain:
+                option_parts.insert(0, formatted_domain)
         extra_options = source.options.get("options") or source.options.get("extra_options")
         if isinstance(extra_options, str) and extra_options.strip():
             option_parts.append(extra_options.strip())
         elif isinstance(extra_options, (list, tuple)):
             option_parts.extend(str(entry) for entry in extra_options if entry)
 
-        options = ",".join(part for part in option_parts if part)
         share = f"//{source.options['server']}/{source.options['share']}"
-        LOGGER.info("Mount SMB share %s auf %s", share, mount_point)
+        configured_subpath = _normalize_subpath(source.subpath)
+        if configured_subpath:
+            formatted_subdir = _format_cifs_option("subdir", configured_subpath)
+            if formatted_subdir:
+                option_parts.append(formatted_subdir)
+        options = ",".join(part for part in option_parts if part)
+        display_share = (
+            f"{share}/{configured_subpath}" if configured_subpath else share
+        )
+        LOGGER.info("Mount SMB share %s auf %s", display_share, mount_point)
         try:
             self._run_mount_helper("mount", share, str(mount_point), options, ignore_busy=True)
+        except MountAuthenticationError as exc:
+            detail = exc.raw_message if getattr(exc, "raw_message", None) else str(exc)
+            LOGGER.warning(
+                "Authentifizierung am SMB-Server für %s fehlgeschlagen: %s. "
+                "Bitte Benutzername, Passwort und die Freigabeberechtigungen der Freigabe prüfen.",
+                display_share,
+                detail,
+            )
+            raise
         except Exception as exc:
-            LOGGER.warning("Mount von %s fehlgeschlagen: %s", share, exc)
+            LOGGER.warning("Mount von %s fehlgeschlagen: %s", display_share, exc)
             raise
 
     def unmount_source(self, source: MediaSource) -> None:
