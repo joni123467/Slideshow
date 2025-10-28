@@ -72,6 +72,24 @@ def _normalize_subpath(value: Optional[str]) -> Optional[str]:
     return sanitized or None
 
 
+def _escape_cifs_option(value: str) -> str:
+    """Maskiert Sonderzeichen in CIFS-Optionswerten.
+
+    Laut ``mount.cifs(8)`` müssen Kommas und umgekehrte Schrägstriche in
+    Optionswerten mit einem führenden ``\\`` escaped werden, da sie sonst als
+    Trenner interpretiert werden. Geschieht dies nicht, gehen beispielsweise
+    Passwörter mit Kommas verloren und der Mount schlägt fehl.
+    """
+
+    return value.replace("\\", "\\\\").replace(",", "\\,")
+
+
+def _format_cifs_option(key: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    return f"{key}={_escape_cifs_option(str(value))}"
+
+
 def parse_smb_location(raw_path: str) -> tuple[str, str, Optional[str]]:
     """Zerlegt eine SMB-Pfadangabe in Server, Freigabe und Unterordner."""
 
@@ -603,7 +621,8 @@ class MediaManager:
         gid = os.getgid()
         vers = source.options.get("vers", "3.1.1")
         vers_option = vers if isinstance(vers, str) and vers.startswith("vers=") else f"vers={vers}"
-        option_parts = ["rw",
+        option_parts = [
+            "rw",
             f"uid={uid}",
             f"gid={gid}",
             "file_mode=0775",
@@ -611,16 +630,20 @@ class MediaManager:
             vers_option,
         ]
         username = source.options.get("username")
-        if username:
-            option_parts.insert(0, f"username={username}")
-            option_parts.insert(1, f"password={password or ''}")
-        elif password:
-            option_parts.insert(0, f"password={password}")
+        formatted_username = _format_cifs_option("username", username) if username else None
+        formatted_password = _format_cifs_option("password", password or "") if password is not None else None
+        if formatted_username:
+            option_parts.insert(0, formatted_username)
+            option_parts.insert(1, formatted_password or _format_cifs_option("password", ""))
+        elif formatted_password:
+            option_parts.insert(0, formatted_password)
         else:
             option_parts.insert(0, "guest")
         domain = source.options.get("domain")
         if domain:
-            option_parts.insert(0, f"domain={domain}")
+            formatted_domain = _format_cifs_option("domain", domain)
+            if formatted_domain:
+                option_parts.insert(0, formatted_domain)
         extra_options = source.options.get("options") or source.options.get("extra_options")
         if isinstance(extra_options, str) and extra_options.strip():
             option_parts.append(extra_options.strip())
