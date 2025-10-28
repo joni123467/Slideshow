@@ -38,6 +38,46 @@ VENV_DIR="$APP_DIR/.venv"
 SERVICE_FILE="/etc/systemd/system/slideshow.service"
 RUN_USER_FILE="$APP_DIR/.run_user"
 LIGHTDM_AUTLOGIN_CONF="/etc/lightdm/lightdm.conf.d/50-slideshow-autologin.conf"
+FALLBACK_MIMETYPE_FILE="$APP_DIR/.fallback-mime.types"
+
+ensure_fallback_mimetypes() {
+  if [[ ! -f "$FALLBACK_MIMETYPE_FILE" ]]; then
+    cat <<'MIME' > "$FALLBACK_MIMETYPE_FILE"
+# Minimal MIME type list used when bootstrapping the virtual environment.
+#
+# Some installations ship a system-wide mime.types file that is not encoded
+# as UTF-8.  Python's mimetypes module (used indirectly by ensurepip/pip)
+# assumes UTF-8 and aborts if the file cannot be decoded which causes the
+# virtualenv bootstrap to fail.  By pointing mimetypes to this ASCII encoded
+# fallback file we avoid the decoding issue while still providing the handful
+# of types pip relies on.
+text/html html htm
+text/plain txt text conf cfg ini log
+application/json json
+application/octet-stream bin exe dll
+application/x-tar tar
+application/zip zip
+application/gzip gz tgz
+application/x-bzip2 bz2
+application/x-xz xz
+application/pdf pdf
+image/png png
+image/jpeg jpeg jpg
+image/svg+xml svg
+video/mp4 mp4
+audio/mpeg mp3
+application/x-msdownload dll
+application/vnd.ms-fontobject eot
+font/ttf ttf
+font/otf otf
+MIME
+  fi
+}
+
+with_fallback_mimetypes() {
+  ensure_fallback_mimetypes
+  MIMETYPES_FILE="$FALLBACK_MIMETYPE_FILE" "$@"
+}
 
 configure_lightdm_autologin() {
   local user="$1"
@@ -67,7 +107,7 @@ enable_user_linger() {
 
 ensure_virtualenv() {
   if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-    python3 -m venv "$VENV_DIR"
+    with_fallback_mimetypes python3 -m venv "$VENV_DIR"
   fi
 }
 
@@ -76,19 +116,19 @@ install_python_dependencies() {
   local python_bin="$VENV_DIR/bin/python"
   local pip_bin="$VENV_DIR/bin/pip"
   if [[ ! -x "$pip_bin" && -x "$python_bin" ]]; then
-    "$python_bin" -m ensurepip --upgrade
+    with_fallback_mimetypes "$python_bin" -m ensurepip --upgrade
     pip_bin="$VENV_DIR/bin/pip"
   fi
   if [[ ! -x "$pip_bin" ]]; then
     echo "Konnte pip im virtuellen Environment nicht finden." >&2
     return 1
   fi
-  "$pip_bin" install --upgrade pip setuptools wheel
+  with_fallback_mimetypes "$pip_bin" install --upgrade pip setuptools wheel
   if [[ -f "$APP_DIR/pyproject.toml" ]]; then
-    "$pip_bin" install poetry
-    (cd "$APP_DIR" && "$VENV_DIR/bin/poetry" install --no-root)
+    with_fallback_mimetypes "$pip_bin" install poetry
+    (cd "$APP_DIR" && with_fallback_mimetypes "$VENV_DIR/bin/poetry" install --no-root)
   elif [[ -f "$APP_DIR/requirements.txt" ]]; then
-    "$pip_bin" install -r "$APP_DIR/requirements.txt"
+    with_fallback_mimetypes "$pip_bin" install -r "$APP_DIR/requirements.txt"
   fi
 }
 
