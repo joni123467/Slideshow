@@ -30,6 +30,15 @@ from .config import (
 
 LOGGER = logging.getLogger(__name__)
 
+
+class MountAuthenticationError(RuntimeError):
+    """Fehler, wenn der SMB-Server die Anmeldedaten ablehnt."""
+
+    def __init__(self, returncode: int, message: str):
+        self.returncode = returncode
+        self.raw_message = message
+        super().__init__(f"Mount-Helfer fehlgeschlagen ({returncode}): {message}")
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 IGNORED_EXTENSIONS = {".db", ".ini", ".tmp", ".ds_store"}
@@ -360,6 +369,7 @@ class MediaManager:
             stderr = (result.stderr or "").strip()
             stdout = (result.stdout or "").strip()
             message = stderr or stdout or "unbekannter Fehler"
+            normalized = message.lower()
             if ignore_busy and result.returncode == 16:
                 LOGGER.debug(
                     "Mount-Helfer meldete 'busy' (%s), behandle als Erfolg: %s",
@@ -367,6 +377,8 @@ class MediaManager:
                     message,
                 )
                 return result
+            if "mount error(13)" in normalized or "permission denied" in normalized:
+                raise MountAuthenticationError(result.returncode, message)
             raise RuntimeError(f"Mount-Helfer fehlgeschlagen ({result.returncode}): {message}")
         return result
 
@@ -655,6 +667,15 @@ class MediaManager:
         LOGGER.info("Mount SMB share %s auf %s", share, mount_point)
         try:
             self._run_mount_helper("mount", share, str(mount_point), options, ignore_busy=True)
+        except MountAuthenticationError as exc:
+            detail = exc.raw_message if getattr(exc, "raw_message", None) else str(exc)
+            LOGGER.warning(
+                "Authentifizierung am SMB-Server für %s fehlgeschlagen: %s. "
+                "Bitte Benutzername, Passwort und die Freigabeberechtigungen der Freigabe prüfen.",
+                share,
+                detail,
+            )
+            raise
         except Exception as exc:
             LOGGER.warning("Mount von %s fehlgeschlagen: %s", share, exc)
             raise
