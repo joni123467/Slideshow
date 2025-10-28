@@ -86,11 +86,16 @@ def _escape_cifs_option(value: str) -> str:
 
     Laut ``mount.cifs(8)`` müssen Kommas und umgekehrte Schrägstriche in
     Optionswerten mit einem führenden ``\\`` escaped werden, da sie sonst als
-    Trenner interpretiert werden. Geschieht dies nicht, gehen beispielsweise
-    Passwörter mit Kommas verloren und der Mount schlägt fehl.
+    Trenner interpretiert werden. Zusätzlich müssen doppelte Anführungszeichen
+    escaped werden, da der Mount-Helfer die Optionsliste an ``/bin/mount`` als
+    in Anführungszeichen gesetzten Parameter übergibt und ansonsten die Shell-
+    Quote-Balance verloren geht.
     """
 
-    return value.replace("\\", "\\\\").replace(",", "\\,")
+    escaped = value.replace("\\", "\\\\")
+    escaped = escaped.replace('"', '\\"')
+    escaped = escaped.replace(",", "\\,")
+    return escaped
 
 
 def _format_cifs_option(key: str, value: Optional[str]) -> Optional[str]:
