@@ -15,6 +15,9 @@ from typing import Iterable, Optional
 LOGGER = logging.getLogger(__name__)
 
 
+STALL_TIMEOUT_SECONDS = 45.0
+
+
 class MpvController:
     """Kapselt die Kommunikation mit einer persistenten mpv-Instanz."""
 
@@ -160,27 +163,50 @@ class MpvController:
             return response.get("error") == "success" and bool(response.get("data"))
         return False
 
-    def wait_until_idle(self, should_abort) -> bool:
+    def wait_until_idle(self, should_abort, *, stall_timeout: float = STALL_TIMEOUT_SECONDS) -> bool:
         """Wartet bis mpv in den Idle-Zustand zurückkehrt.
 
         :param should_abort: Callable ohne Argumente, das bei Abbruch True liefert.
         :returns: True falls die Wiedergabe normal beendet wurde, sonst False.
         """
+        last_progress = time.monotonic()
+        last_position: Optional[float] = None
         while True:
             if should_abort():
                 return False
             if not self.is_running():
+                self._last_failure = None
                 return True
             if self.is_idle():
+                self._last_failure = None
                 return True
             if self._get_property_bool("eof-reached"):
                 # EOF erreicht – mpv behält den letzten Frame bei, bis ein neuer
                 # Befehl eingeht. Kein explizites Stoppen, damit der Bildschirm
                 # sichtbar bleibt.
+                self._last_failure = None
                 return True
             if self._get_property_bool("pause"):
                 # Bei aktivem keep-open signalisiert pause=True einen Abschluss.
+                self._last_failure = None
                 return True
+            position = self._get_property_float("time-pos")
+            if position is None:
+                position = self._get_property_float("playback-time")
+            if position is not None:
+                if last_position is None or position > last_position + 0.05:
+                    last_position = position
+                    last_progress = time.monotonic()
+            now = time.monotonic()
+            if stall_timeout and now - last_progress > stall_timeout:
+                stall_duration = int(now - last_progress)
+                message = f"keine Fortschritte seit {stall_duration}s"
+                LOGGER.warning(
+                    "mpv meldet keine Fortschritte mehr bei der Wiedergabe (%s)",
+                    message,
+                )
+                self._last_failure = ("hang", message)
+                return False
             time.sleep(0.2)
 
     def reload_last_successful(self) -> bool:
@@ -289,6 +315,16 @@ class MpvController:
         if isinstance(response, dict) and response.get("error") == "success":
             return bool(response.get("data"))
         return False
+
+    def _get_property_float(self, name: str) -> Optional[float]:
+        response = self._command(["get_property", name])
+        if isinstance(response, dict) and response.get("error") == "success":
+            data = response.get("data")
+            try:
+                return float(data)
+            except (TypeError, ValueError):
+                return None
+        return None
 
     def _wait_for_socket(self) -> bool:
         timeout = time.time() + 5

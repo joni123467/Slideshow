@@ -514,6 +514,23 @@ class PlayerService:
             preview_path=None,
         )
 
+    def _handle_controller_stall(
+        self,
+        side: str,
+        reason: Optional[str],
+        *,
+        reload_playlist: bool = True,
+    ) -> None:
+        message = reason or "keine Fortschritte bei der Wiedergabe"
+        LOGGER.warning(
+            "Wiedergabe auf %s meldet keine Fortschritte mehr (%s) – starte mpv neu",
+            side,
+            message,
+        )
+        self._stop_controller(side)
+        if reload_playlist:
+            self._reload.set()
+
     def _restore_last_frame(
         self, controller: Optional[MpvController], side: str
     ) -> None:
@@ -717,8 +734,13 @@ class PlayerService:
                 self._wait_for_controller_retry(side)
                 return
             finished = controller.wait_until_idle(self._should_interrupt)
-            if not finished and self._should_interrupt():
-                controller.stop_playback()
+            if not finished:
+                failure = controller.last_failure
+                if failure and failure[0] == "hang":
+                    self._handle_controller_stall(side, failure[1])
+                    return
+                if self._should_interrupt():
+                    controller.stop_playback()
         elif player == "omxplayer":
             args = ["omxplayer", "--no-keys", str(path)]
             subprocess.run(args, check=False)
@@ -985,10 +1007,16 @@ class PlayerService:
             controller = self._controller_for_side(side, geometry)
         if controller and controller.load_file(output):
             finished = controller.wait_until_idle(self._should_interrupt)
-            if not finished and self._should_interrupt():
-                controller.stop_playback()
-                self._safe_remove(output)
-                return 0.0, None
+            if not finished:
+                failure = controller.last_failure
+                if failure and failure[0] == "hang":
+                    self._handle_controller_stall(side, failure[1])
+                    self._safe_remove(output)
+                    return 0.0, None
+                if self._should_interrupt():
+                    controller.stop_playback()
+                    self._safe_remove(output)
+                    return 0.0, None
             return duration, output
         else:
             viewer = self.config.playback.video_player
