@@ -662,9 +662,17 @@ class MediaManager:
         elif isinstance(extra_options, (list, tuple)):
             option_parts.extend(str(entry) for entry in extra_options if entry)
 
-        options = ",".join(part for part in option_parts if part)
         share = f"//{source.options['server']}/{source.options['share']}"
-        LOGGER.info("Mount SMB share %s auf %s", share, mount_point)
+        configured_subpath = _normalize_subpath(source.subpath)
+        if configured_subpath:
+            formatted_subdir = _format_cifs_option("subdir", configured_subpath)
+            if formatted_subdir:
+                option_parts.append(formatted_subdir)
+        options = ",".join(part for part in option_parts if part)
+        display_share = (
+            f"{share}/{configured_subpath}" if configured_subpath else share
+        )
+        LOGGER.info("Mount SMB share %s auf %s", display_share, mount_point)
         try:
             self._run_mount_helper("mount", share, str(mount_point), options, ignore_busy=True)
         except MountAuthenticationError as exc:
@@ -672,12 +680,12 @@ class MediaManager:
             LOGGER.warning(
                 "Authentifizierung am SMB-Server für %s fehlgeschlagen: %s. "
                 "Bitte Benutzername, Passwort und die Freigabeberechtigungen der Freigabe prüfen.",
-                share,
+                display_share,
                 detail,
             )
             raise
         except Exception as exc:
-            LOGGER.warning("Mount von %s fehlgeschlagen: %s", share, exc)
+            LOGGER.warning("Mount von %s fehlgeschlagen: %s", display_share, exc)
             raise
 
     def unmount_source(self, source: MediaSource) -> None:
