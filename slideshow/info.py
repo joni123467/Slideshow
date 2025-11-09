@@ -7,9 +7,7 @@ from typing import Iterable, List, Optional, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .config import DATA_DIR
-
-INFO_DIR = DATA_DIR / "info"
+from .config import INFO_DIR
 
 
 class InfoScreen:
