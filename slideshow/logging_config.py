@@ -8,9 +8,7 @@ import pathlib
 import warnings
 from typing import Dict, Tuple
 
-from .config import DATA_DIR
-
-LOG_DIR = DATA_DIR / "logs"
+from .config import LOG_DIR
 
 LOG_GROUPS = {
     "app": {

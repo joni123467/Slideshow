@@ -25,7 +25,12 @@ if [[ -z "$DATA_DIR" ]]; then
   DATA_DIR="$HOME/.slideshow"
 fi
 
-LOG_DIR="$DATA_DIR/logs"
+RUNTIME_DIR="${SLIDESHOW_RUNTIME_DIR:-}"
+if [[ -z "$RUNTIME_DIR" ]]; then
+  RUNTIME_DIR="$DATA_DIR"
+fi
+
+LOG_DIR="$RUNTIME_DIR/logs"
 LOG_FILE="$LOG_DIR/diagnostics.log"
 mkdir -p "$LOG_DIR"
 
