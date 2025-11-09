@@ -453,8 +453,18 @@ class AppConfig:
             "logging": dataclasses.asdict(self.logging),
             "maintenance": dataclasses.asdict(self.maintenance),
         }
+        serialized = yaml.safe_dump(raw, sort_keys=False)
         with _lock:
-            CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+            if CONFIG_PATH.exists():
+                try:
+                    existing = CONFIG_PATH.read_text(encoding="utf-8")
+                except OSError:
+                    existing = None
+                else:
+                    if existing == serialized:
+                        return
+
+            CONFIG_PATH.write_text(serialized, encoding="utf-8")
 
     def refresh(self) -> "AppConfig":
         """Lädt die Konfiguration erneut von der Festplatte."""
