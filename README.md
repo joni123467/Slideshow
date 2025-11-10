@@ -126,19 +126,52 @@ Ist das angegebene Verzeichnis nicht beschreibbar, fällt die Anwendung automati
 
 ### Zugriff auf die grafische Oberfläche
 
-<<<<<<< HEAD
-- Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und setzt `DISPLAY=:0` sowie `XAUTHORITY` automatisch auf dessen Home-Verzeichnis. Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht verändert.
-- Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden.
-- Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
-- Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
-- Vor dem Start erfolgt ein optionaler `xset q`-Aufruf. Dieser dient lediglich als Hinweis auf eine fehlende Desktop-Sitzung und verhindert den Dienststart nicht.
-=======
 - Der systemd-Dienst läuft unter dem ausgewählten Desktop-Benutzer und benötigt Zugriff auf die laufende Sitzung (`DISPLAY=:0`). Während der Installation wird dieses Konto lediglich bestätigt; vorhandene `.Xauthority`-Dateien werden nicht mehr einmalig kopiert, sondern vor jedem Dienststart über `scripts/prestart.sh` synchronisiert, damit neue Login-Tokens automatisch übernommen werden.
 - Findet der Installer keine `.Xauthority`, weist er darauf hin. In diesem Fall muss entweder der korrekte Desktop-Benutzer ausgewählt oder die Datei manuell bereitgestellt werden.
 - Damit die Wiedergabe auf die Grafikhardware zugreifen kann, nimmt das Installationsskript das ausgewählte Benutzerkonto automatisch in die Gruppen `video`, `render` und `input` auf (sofern vorhanden). Fehlende Gruppen werden am Ende der Installation gemeldet.
 - Der systemd-Dienst verwendet `RuntimeDirectory=slideshow-<UID>` und setzt `XDG_RUNTIME_DIR` automatisch auf `/run/slideshow-<UID>`. Dadurch steht der notwendige Socket-Pfad auch nach einem Neustart ohne manuelle Eingriffe bereit.
 - Das Pre-Start-Skript wartet in mehreren Versuchen (`xset q`), bis die grafische Sitzung verfügbar ist. Gelingt dies nicht rechtzeitig, schlägt der Dienststart fehl und verweist auf die fehlende Desktop-Sitzung.
->>>>>>> main
+
+### Laufzeitdaten im Home-Verzeichnis halten
+
+Wer den Pi schreibgeschützt betreiben möchte, kann weiterhin das standardmäßige Datenverzeichnis `~/.slideshow` verwenden und ausschließlich die schreibintensiven Bereiche in ein RAM-gestütztes Unterverzeichnis auslagern:
+
+1. **Verzeichnis vorbereiten**
+
+   ```bash
+   mkdir -p ~/.slideshow/runtime
+   ```
+
+2. **tmpfs-Mount für Laufzeitdaten einrichten** – Eintrag in `/etc/fstab` ergänzen (Größe nach Bedarf anpassen, Pfad ggf. auf den tatsächlichen Benutzer anpassen):
+
+   ```
+   tmpfs  /home/pi/.slideshow/runtime  tmpfs  size=256M,noatime,mode=0755  0  0
+   ```
+
+   Nach dem Speichern kann der Mount mit `sudo mount -a` getestet werden.
+
+3. **systemd-Dienst auf das Laufzeitverzeichnis verweisen** – per Drop-in-Konfiguration:
+
+   ```bash
+   sudo systemctl edit slideshow.service
+   ```
+
+   Inhalt (im Editor):
+
+   ```ini
+   [Service]
+   Environment=SLIDESHOW_DATA_DIR=%h/.slideshow
+   Environment=SLIDESHOW_RUNTIME_DIR=%h/.slideshow/runtime
+   ```
+
+   Anschließend den Dienst neu laden und starten:
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart slideshow.service
+   ```
+
+Durch diese Konfiguration verbleiben Konfiguration (`config.yml`) und Geheimnisse (`secrets.json`) dauerhaft in `~/.slideshow`, während Logs, Cache, temporäre Dateien und der Laufzeitzustand im RAM leben. Ein Neustart leert das `runtime`-Verzeichnis automatisch, ohne dass die persistenten Einstellungen verloren gehen.
 
 ### Updates ohne Git-Checkout
 

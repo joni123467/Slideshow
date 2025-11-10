@@ -22,13 +22,16 @@ LOGGER = logging.getLogger(__name__)
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 try:
-    from .config import DATA_DIR
+    from .config import DATA_DIR, LOG_DIR, RUNTIME_DIR, TMP_DIR
 except ImportError:  # pragma: no cover - Fallback für frühe Initialisierung
     DATA_DIR = pathlib.Path.home() / ".slideshow"
+    RUNTIME_DIR = DATA_DIR
+    LOG_DIR = RUNTIME_DIR / "logs"
+    TMP_DIR = RUNTIME_DIR / "tmp"
 
-UPDATE_LOG = DATA_DIR / "logs" / "update.log"
-DIAGNOSTICS_LOG = DATA_DIR / "logs" / "diagnostics.log"
-SMART_TEST_LOG = DATA_DIR / "logs" / "smart-tests.log"
+UPDATE_LOG = LOG_DIR / "update.log"
+DIAGNOSTICS_LOG = LOG_DIR / "diagnostics.log"
+SMART_TEST_LOG = LOG_DIR / "smart-tests.log"
 
 
 def resolve_hostname() -> str:
@@ -286,6 +289,8 @@ class SystemManager:
             (pathlib.Path("/"), "Root-Dateisystem"),
             (DATA_DIR, "Datenverzeichnis"),
         ]
+        if RUNTIME_DIR != DATA_DIR:
+            disk_targets.append((RUNTIME_DIR, "Laufzeitdaten"))
         seen: Dict[str, bool] = {}
         for target_path, label in disk_targets:
             try:
@@ -510,6 +515,7 @@ class SystemManager:
         header = f"Systemdiagnose gestartet (Modus: {normalized})"
         env = os.environ.copy()
         env.setdefault("SLIDESHOW_DATA_DIR", str(DATA_DIR))
+        env.setdefault("SLIDESHOW_RUNTIME_DIR", str(RUNTIME_DIR))
         description = f"Systemdiagnose gestartet ({normalized})"
         return self._spawn_to_log(
             command,
@@ -758,7 +764,7 @@ class SystemManager:
             LOGGER.debug("Leeres Update-Skript von %s erhalten", url)
             return None
         safe_branch = re.sub(r"[^A-Za-z0-9._-]", "_", branch)
-        tmp_dir = DATA_DIR / "tmp"
+        tmp_dir = TMP_DIR
         try:
             tmp_dir.mkdir(parents=True, exist_ok=True)
         except OSError:

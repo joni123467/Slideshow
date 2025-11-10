@@ -7,8 +7,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from .config import DATA_DIR
-STATE_PATH = DATA_DIR / "state.json"
+from .config import STATE_PATH
 
 _lock = threading.Lock()
 
@@ -84,7 +83,7 @@ def load_state() -> PlaybackState:
 
 
 def save_state(state: PlaybackState) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(asdict(state)), encoding="utf-8")
 
 

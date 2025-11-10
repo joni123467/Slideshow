@@ -22,6 +22,7 @@ from .config import (
     DATA_DIR,
     MediaSource,
     PlaylistItem,
+    RUNTIME_DIR,
     delete_secret,
     ensure_cache_dir,
     load_secret,
@@ -46,7 +47,7 @@ CACHEABLE_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_MOUNT_HELPER = BASE_DIR / "scripts" / "mount_smb.sh"
-MOUNT_ROOT = (DATA_DIR / "mounts").resolve()
+MOUNT_ROOT = (RUNTIME_DIR / "mounts").resolve()
 
 PLAYLIST_CONTEXT_FULLSCREEN = "fullscreen"
 PLAYLIST_CONTEXT_SPLIT_LEFT = "splitscreen_left"

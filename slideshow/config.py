@@ -44,7 +44,35 @@ def _determine_data_dir() -> pathlib.Path:
 
 
 DATA_DIR = _determine_data_dir()
-CACHE_DIR = DATA_DIR / "cache"
+
+
+def _determine_runtime_dir() -> pathlib.Path:
+    """Bestimmt das Verzeichnis für flüchtige Laufzeitdaten."""
+
+    env_path = os.environ.get("SLIDESHOW_RUNTIME_DIR")
+    if env_path:
+        candidate = pathlib.Path(env_path).expanduser()
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            LOGGER.warning(
+                "Konnte SLIDESHOW_RUNTIME_DIR %s nicht verwenden: %s – falle auf %s zurück.",
+                candidate,
+                exc,
+                DATA_DIR,
+            )
+        else:
+            return candidate
+
+    return DATA_DIR
+
+
+RUNTIME_DIR = _determine_runtime_dir()
+CACHE_DIR = RUNTIME_DIR / "cache"
+LOG_DIR = RUNTIME_DIR / "logs"
+TMP_DIR = RUNTIME_DIR / "tmp"
+INFO_DIR = RUNTIME_DIR / "info"
+STATE_PATH = RUNTIME_DIR / "state.json"
 CONFIG_PATH = DATA_DIR / "config.yml"
 SECRETS_PATH = DATA_DIR / "secrets.json"
 DEFAULT_CONFIG = {
@@ -453,8 +481,18 @@ class AppConfig:
             "logging": dataclasses.asdict(self.logging),
             "maintenance": dataclasses.asdict(self.maintenance),
         }
+        serialized = yaml.safe_dump(raw, sort_keys=False)
         with _lock:
-            CONFIG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+            if CONFIG_PATH.exists():
+                try:
+                    existing = CONFIG_PATH.read_text(encoding="utf-8")
+                except OSError:
+                    existing = None
+                else:
+                    if existing == serialized:
+                        return
+
+            CONFIG_PATH.write_text(serialized, encoding="utf-8")
 
     def refresh(self) -> "AppConfig":
         """Lädt die Konfiguration erneut von der Festplatte."""
