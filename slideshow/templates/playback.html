@@ -102,7 +102,8 @@
           <div>
             <h4>Linke Seite</h4>
             <label>Quelle
-              <select name="splitscreen_left_source">
+              <input type="search" class="select-search" data-filter-target="splitscreen-left-source" placeholder="Quelle suchen …" />
+              <select name="splitscreen_left_source" id="splitscreen-left-source">
                 <option value="">(keine)</option>
                 {% for source in sources %}
                 <option value="{{ source.name }}" {% if config.playback.splitscreen_left_source == source.name %}selected{% endif %}>{{ source.name }}</option>
@@ -117,7 +118,8 @@
           <div>
             <h4>Rechte Seite</h4>
             <label>Quelle
-              <select name="splitscreen_right_source">
+              <input type="search" class="select-search" data-filter-target="splitscreen-right-source" placeholder="Quelle suchen …" />
+              <select name="splitscreen_right_source" id="splitscreen-right-source">
                 <option value="">(keine)</option>
                 {% for source in sources %}
                 <option value="{{ source.name }}" {% if config.playback.splitscreen_right_source == source.name %}selected{% endif %}>{{ source.name }}</option>
@@ -187,6 +189,47 @@
       resolutionChoice.addEventListener('change', updateResolutionVisibility);
       updateResolutionVisibility();
     }
+
+    const sourceSearchInputs = document.querySelectorAll('[data-filter-target]');
+    sourceSearchInputs.forEach((input) => {
+      const selectId = input.getAttribute('data-filter-target');
+      const select = selectId ? document.getElementById(selectId) : null;
+      if (!select) {
+        return;
+      }
+      const allOptions = Array.from(select.options).map((option) => ({
+        value: option.value,
+        text: option.textContent,
+        selected: option.selected,
+      }));
+
+      const render = (term) => {
+        const lowered = (term || '').trim().toLowerCase();
+        const previousValue = select.value;
+        const matching = allOptions.filter((option) => {
+          if (!lowered) {
+            return true;
+          }
+          return option.text.toLowerCase().includes(lowered) || option.value.toLowerCase().includes(lowered);
+        });
+        select.innerHTML = '';
+        matching.forEach((optionData) => {
+          const option = document.createElement('option');
+          option.value = optionData.value;
+          option.textContent = optionData.text;
+          select.appendChild(option);
+        });
+        if (matching.some((option) => option.value === previousValue)) {
+          select.value = previousValue;
+        } else if (matching.some((option) => option.selected)) {
+          select.value = matching.find((option) => option.selected).value;
+        }
+      };
+
+      input.addEventListener('input', () => render(input.value));
+      render('');
+    });
+
   })();
 </script>
 {% endblock %}

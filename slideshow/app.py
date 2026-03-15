@@ -8,8 +8,10 @@ import io
 import logging
 import mimetypes
 import pathlib
+import pwd
 import subprocess
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote_plus
 
 from flask import (
     Flask,
@@ -83,6 +85,29 @@ DISPLAY_RESOLUTION_CHOICES: Tuple[Tuple[str, str], ...] = (
     ("1366x768", "WXGA (1366×768)"),
     ("1280x720", "HD (1280×720)"),
 )
+
+
+def _playback_mode(state, service_running: bool) -> Tuple[str, str]:
+    """Liefert technischen und menschenlesbaren Wiedergabemodus."""
+
+    if not service_running:
+        return "stopped", "Wiedergabe gestoppt"
+    if state.info_screen:
+        return "working_time", "Nur Arbeitszeit aktiv"
+    if state.primary_item or state.secondary_item:
+        return "job", "Auftrag läuft"
+    return "idle", "Keine aktive Wiedergabe"
+
+
+def _administration_users() -> List[Dict[str, str]]:
+    """Liste lokaler Benutzer für den Administrationsbereich."""
+
+    users: List[Dict[str, str]] = []
+    for entry in sorted(pwd.getpwall(), key=lambda item: item.pw_name.lower()):
+        if entry.pw_uid < 1000 or "nologin" in entry.pw_shell:
+            continue
+        users.append({"username": entry.pw_name})
+    return users
 
 
 def create_app(config: Optional[AppConfig] = None, player_service: Optional[PlayerService] = None) -> Flask:
@@ -212,6 +237,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             )
         service_running = player.is_running()
         service_status = "läuft" if service_running else "gestoppt"
+        playback_mode, playback_mode_label = _playback_mode(state, service_running)
         disabled_keys = media_manager.disabled_media_keys_by_context()
         return render_template(
             "dashboard.html",
@@ -222,6 +248,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             config=cfg,
             service_status=service_status,
             service_active=service_running,
+            playback_mode=playback_mode,
+            playback_mode_label=playback_mode_label,
             disabled_keys=disabled_keys,
             context_fullscreen=PLAYLIST_CONTEXT_FULLSCREEN,
             context_split_left=PLAYLIST_CONTEXT_SPLIT_LEFT,
@@ -586,6 +614,15 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         scheduled_restart_text = ", ".join(cfg.maintenance.auto_restart_times)
         service_running = player.is_running()
         service_status = "läuft" if service_running else "gestoppt"
+        app_url = request.url_root.rstrip("/")
+        app_download_url = f"{app_url}/"
+        administration_users = _administration_users()
+        for user_entry in administration_users:
+            payload = f"{app_download_url}?user={user_entry['username']}"
+            user_entry["mobile_qr_url"] = (
+                "https://api.qrserver.com/v1/create-qr-code/?size=140x140&data="
+                f"{quote_plus(payload)}"
+            )
         return render_template(
             "system.html",
             config=cfg,
@@ -601,6 +638,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             system_overview=overview,
             storage_info=storage_info,
             diagnostics_info=diagnostics_info,
+            administration_users=administration_users,
+            app_download_url=app_download_url,
         )
 
     @app.route("/system/overview.json")
@@ -1119,6 +1158,7 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
         state = get_state()
         service_running = player.is_running()
         svc_status = "running" if service_running else "stopped"
+        playback_mode, playback_mode_label = _playback_mode(state, service_running)
         return jsonify({
             "primary_item": state.primary_item,
             "primary_status": state.primary_status,
@@ -1148,6 +1188,8 @@ def create_app(config: Optional[AppConfig] = None, player_service: Optional[Play
             "info_manual": state.info_manual,
             "service_status": svc_status,
             "service_active": service_running,
+            "playback_mode": playback_mode,
+            "playback_mode_label": playback_mode_label,
             "version": app.config.get("SLIDESHOW_VERSION"),
             "theme": app.config.get("SLIDESHOW_THEME", cfg.ui.theme),
         })

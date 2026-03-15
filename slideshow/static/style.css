@@ -841,6 +841,12 @@ form {
   max-width: none;
 }
 
+
+.select-search {
+  width: 100%;
+  margin-bottom: 0.4rem;
+}
+
 .split-grid {
   display: grid;
   gap: 1rem;

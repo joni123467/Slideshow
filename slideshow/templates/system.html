@@ -438,6 +438,34 @@
             </div>
           </article>
           <article>
+            <h2>Administration</h2>
+            <p class="muted">Direktlink zur mobilen Oberfläche: <code>{{ app_download_url }}</code></p>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Benutzer</th>
+                    <th>QR-Code (Mobile App)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for user in administration_users %}
+                  <tr>
+                    <td><strong>{{ user.username }}</strong></td>
+                    <td>
+                      <img src="{{ user.mobile_qr_url }}" alt="QR-Code für {{ user.username }}" width="140" height="140" loading="lazy" />
+                    </td>
+                  </tr>
+                  {% else %}
+                  <tr>
+                    <td colspan="2">Keine lokalen Benutzer gefunden.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article>
             <h2>Konfiguration</h2>
             <div class="button-row">
               <a class="button-link" href="{{ url_for('export_config') }}">Konfiguration exportieren</a>
